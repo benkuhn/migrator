@@ -1,0 +1,6 @@
+pathlib==1.0.1
+psycopg2==2.8.6
+schemainspect==0.1.1607225519
+six==1.15.0
+SQLAlchemy==1.3.22
+sqlbag==0.1.1579049654

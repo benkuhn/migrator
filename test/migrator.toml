@@ -1,0 +1,3 @@
+schema_dump_command = "cat schema.sql"
+migrations_dir = "migrations"
+crash_on_incompatible_version = true

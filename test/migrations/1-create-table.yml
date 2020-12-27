@@ -1,0 +1,11 @@
+revision: 1
+message: Create table
+pre_deploy:
+- run_ddl:
+    up: |
+      CREATE TABLE users (
+        u_id INT PRIMARY KEY,
+        email TEXT NOT NULL
+      )
+    down: |
+      DROP TABLE users;

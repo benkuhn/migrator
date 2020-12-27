@@ -1,0 +1,8 @@
+revision: 2
+message: Add mobile
+pre_deploy:
+- run_ddl:
+    up: |
+      ALTER TABLE users ADD COLUMN mobile TEXT NOT NULL;
+    down: |
+      ALTER TABLE users DROP COLUMN mobile;
