@@ -6,16 +6,16 @@ import yaml
 import abc
 from pydantic import BaseModel, root_validator
 from dataclasses import dataclass, field
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict, Any
 
-def get_revision_number(filename):
+def get_revision_number(filename: str) -> int:
     return int(os.path.basename(filename).split("-", 1)[0])
 
-def load_yaml(fname):
+def load_yaml(fname: str) -> Dict[Any, Any]:
     with open(fname) as f:
-        return yaml.safe_load(f.read())
+        return yaml.safe_load(f.read()) # type: ignore
 
-def sibling(fname, path):
+def sibling(fname: str, path: str) -> str:
     return os.path.join(os.path.dirname(fname), path)
     
 @dataclass
@@ -58,7 +58,7 @@ class Revision:
     migration_filename: str
 
     @property
-    def schema_filename(self):
+    def schema_filename(self) -> str:
         return sibling(self.migration_filename, f"{self.number}-schema.sql")
 
     @staticmethod
@@ -99,5 +99,5 @@ class OtherStep(AbstractStep, BaseModel):
 
 AnyStep = Union[DDLStep, OtherStep]
 
-for s in BaseModel.__subclasses__(): # type: ignore
-    s.update_forward_refs() # type: ignore
+for s in BaseModel.__subclasses__():
+    s.update_forward_refs()
