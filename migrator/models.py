@@ -33,5 +33,5 @@ class OtherStep(AbstractStep, BaseModel):
 
 AnyStep = Union[DDLStep, OtherStep]
 
-for s in BaseModel.__subclasses__():
-    s.update_forward_refs()
+for s in BaseModel.__subclasses__(): # type: ignore
+    s.update_forward_refs() # type: ignore
