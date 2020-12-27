@@ -6,7 +6,7 @@ def load_yaml(fname):
         return yaml.safe_load(f.read())
         
 def test_basic_parse():
-    r = models.Repo.parse("test/migrations")
+    r = models.Repo.parse("test/migrator.yml")
     m = r.revisions[0].migration
     assert m.post_deploy == []
     [step1] = m.pre_deploy
