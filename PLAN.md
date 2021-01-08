@@ -1,6 +1,6 @@
 Min viable "get something working"
 
-- [ ] test data + parsing into models
+- [x] test data + parsing into models
 - [ ] `$cmd up` works on empty db
 - [ ] `$cmd revision` generates DDL
 

@@ -2,3 +2,4 @@ schemainspect
 sqlbag
 psycopg2
 pydantic
+pyyaml

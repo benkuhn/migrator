@@ -4,6 +4,8 @@ import os.path
 import glob
 import yaml
 import abc
+from datetime import datetime
+import hashlib
 from pydantic import BaseModel, root_validator
 from dataclasses import dataclass, field
 from typing import List, Union, Optional, Dict, Any
@@ -58,8 +60,30 @@ class Revision:
     migration_filename: str
 
     @property
+    def _migration_text(self) -> str:
+        with open(self.migration_filename) as f:
+            return f.read()
+
+    @property
+    def migration_hash(self) -> bytes:
+        return hashlib.sha256(self._migration_text.encode('ascii')).digest()
+
+    @property
+    def migration(self) -> Migration:
+        return Migration.parse_obj(load_yaml(self.migration_filename))
+
+    @property
     def schema_filename(self) -> str:
         return sibling(self.migration_filename, f"{self.number}-schema.sql")
+
+    @property
+    def _schema_text(self) -> str:
+        with open(self.schema_filename) as f:
+            return f.read()
+        
+    @property
+    def schema_hash(self) -> bytes:
+        return hashlib.sha256(self._schema_text.encode('ascii')).digest()
 
     @staticmethod
     def parse(filename: str) -> Revision:
@@ -67,10 +91,23 @@ class Revision:
         number = get_revision_number(filename)
         return Revision(number, filename)
 
-    @property
-    def migration(self) -> Migration:
-        return Migration.parse_obj(load_yaml(self.migration_filename))
+@dataclass
+class MigrationPart:
+    revision: int
+    migration_hash: bytes
+    pre_deploy: bool
+    phase: int
+    subphase: int
 
+@dataclass
+class MigrationAudit:
+    id: int
+    started_at: datetime
+    finished_at: Optional[datetime]
+    revert_started_at: Optional[datetime]
+    revert_finished_at: Optional[datetime]
+    part: MigrationPart
+    
 class Migration(BaseModel):
     revision: int
     message: str

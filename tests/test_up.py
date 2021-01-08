@@ -1,6 +1,10 @@
+import contextlib
+import random
+import re
 from typing import Any, NoReturn
 import os
 import pytest
+import psycopg2
 
 from migrator.commands import Context, UserInterface, text, up
 
@@ -26,14 +30,32 @@ class FakeUserInterface(UserInterface):
 
     def exit(self, status: int) -> NoReturn:
         raise FakeExit(status)
-    
+
+@pytest.fixture(scope="session")
+def control_conn():
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    conn.set_session(autocommit=True)
+    return conn
+
 @pytest.fixture
-def ctx() -> Context:
-    return Context(
+def db_url(control_conn) -> str:
+    cur = control_conn.cursor()
+    db_name = ''.join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
+    cur.execute("CREATE DATABASE " + db_name)
+    control_conn.commit()
+    yield re.sub("/[^/]+$", "/" + db_name, os.environ["DATABASE_URL"])
+    cur.execute("DROP DATABASE " + db_name)
+    control_conn.commit()
+
+@pytest.fixture
+def ctx(db_url: str) -> Context:
+    ctx = Context(
         "test/migrator.yml",
-        os.environ["DATABASE_URL"],
+        db_url,
         FakeUserInterface()
     )
+    with contextlib.closing(ctx):
+        yield ctx
 
 def test_init(ctx: Context) -> None:
     ctx.ui.respond_yes_no(text.ASK_TO_INITIALIZE_DB, "y")

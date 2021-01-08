@@ -8,17 +8,28 @@ from typing import Any, NoReturn, Optional
 from .. import models, db
 from . import text
 
-@dataclass(frozen=True)
+@dataclass
 class Context:
     config_path: str
     database_url: str
     ui: UserInterface
+    _db: Optional[db.Database] = None
+    _repo: Optional[models.Repo] = None
 
     def repo(self) -> models.Repo:
-        return models.Repo.parse(self.config_path)
+        if self._repo is None:
+            self._repo = models.Repo.parse(self.config_path)
+        return self._repo
 
     def db(self) -> db.Database:
-        return db.Database(self.database_url)
+        if self._db is None:
+            self._db = db.Database(self.database_url)
+        return self._db
+
+    def close(self) -> None:
+        if self._db is not None:
+            self._db.close()
+            self._db = None
 
 class UserInterface(abc.ABC):
     def ask_yes_no(self, message: str) -> bool:
