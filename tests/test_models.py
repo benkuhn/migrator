@@ -7,7 +7,7 @@ def load_yaml(fname):
         
 def test_basic_parse():
     r = models.Repo.parse("test/migrator.yml")
-    m = r.revisions[0].migration
+    m = r.revisions[1].migration
     assert m.post_deploy == []
     [step1] = m.pre_deploy
     assert step1.run_ddl is not None

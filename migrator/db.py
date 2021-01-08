@@ -1,5 +1,7 @@
 """Abstraction layer over a database
 """
+import dataclasses
+
 from .constants import NAME
 from contextlib import contextmanager
 import hashlib
@@ -16,13 +18,13 @@ CREATE SCHEMA {NAME};
 
 CREATE TABLE {NAME}.migrations (
   revision INT NOT NULL,
-  file_hash BYTEA NOT NULL,
+  migration_hash BYTEA NOT NULL,
   schema_hash BYTEA NOT NULL,
   file TEXT NOT NULL
 );
 
 CREATE TABLE {NAME}.migration_audit (
-  id INT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   started_at TIMESTAMP WITH TIME ZONE NOT NULL,
   revision INT NOT NULL,
   migration_hash BYTEA NOT NULL,
@@ -43,14 +45,14 @@ CREATE TABLE {NAME}.connections (
 );
 """
 
-MIGRATION_PART_FIELDS = "revision, migration_hash, pre_deploy, phase, subphase"
+MIGRATION_PART_FIELDS = "revision, migration_hash, schema_hash, pre_deploy, phase, subphase"
 
-AUDIT_FIELDS = "id, started_at, finished_at, revert_started_at, revert_finished_at, {MIGRATION_PART_FIELDS}"
+AUDIT_FIELDS = f"id, started_at, finished_at, revert_started_at, revert_finished_at, {MIGRATION_PART_FIELDS}"
 
 def map_audit(row: Iterable[Any]) -> models.MigrationAudit:
     fields = list(row)
-    part = models.MigrationPart(*fields[-5:])
-    return models.MigrationAudit(*fields[:-5], part) # type: ignore
+    part = models.MigrationPart(*fields[-6:])
+    return models.MigrationAudit(*fields[:-6], part) # type: ignore
 
 class Database:
     def __init__(self, database_url: str) -> None:
@@ -105,13 +107,22 @@ class Database:
         return map_audit(result[0])
 
     def audit_part_start(self, part: models.MigrationPart) -> models.MigrationAudit:
-        result = self.cur.execute(f"""
+        self.cur.execute(f"""
         INSERT INTO {NAME}.migration_audit
             (started_at, {MIGRATION_PART_FIELDS})
         VALUES
-            (now(), %s, %s, %s, %s, %s)
-        RETURNING {AUDIT_FIELDS}""", part)
-        return map_audit(result[0])
+            (now(), %s, %s, %s, %s, %s, %s)
+        RETURNING {AUDIT_FIELDS}""", dataclasses.astuple(part))
+        return map_audit(self.cur.fetchall()[0])
+
+    def audit_part_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
+        result = self.cur.execute(f"""
+        UPDATE {NAME}.migration_audit
+            SET finished_at = now()
+        WHERE id = %s
+        RETURNING {AUDIT_FIELDS}""", (audit.id, ))
+        return map_audit(self.cur.fetchall()[0])
+
 
     def close(self) -> None:
         self.conn.close()

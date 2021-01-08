@@ -140,6 +140,7 @@ class Revision:
 class MigrationPart:
     revision: int
     migration_hash: bytes
+    schema_hash: bytes
     pre_deploy: bool
     phase: int
     subphase: int
@@ -174,6 +175,7 @@ class Migration:
         return MigrationPart(
             revision=self.revision,
             migration_hash=self.parent.migration_hash,
+            schema_hash=self.parent.schema_hash,
             pre_deploy=True,
             phase=0,
             subphase=0
@@ -195,6 +197,7 @@ class Migration:
             sw._first_subphase = MigrationPart(
                 revision=self.revision,
                 migration_hash=self.parent.migration_hash,
+                schema_hash=self.parent.schema_hash,
                 pre_deploy=pre_deploy,
                 phase=phase,
                 subphase=0

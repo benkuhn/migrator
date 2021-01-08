@@ -14,3 +14,6 @@ def up(ctx: Context) -> None:
     for part in repo.next_parts(None if last is None else last.part):
         migration, step, subphase = repo.get(part)
         subphase.run(db)
+
+    with db.tx():
+        db.cur.execute("select u_id, email, mobile from users")
