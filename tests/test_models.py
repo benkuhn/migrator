@@ -11,4 +11,3 @@ def test_basic_parse():
     assert m.post_deploy == []
     [step1] = m.pre_deploy
     assert step1.run_ddl is not None
-

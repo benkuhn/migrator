@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import dataclasses
 import os.path
 import glob
+from contextlib import contextmanager
+
+import pydantic
 import yaml
 import abc
 from datetime import datetime
 import hashlib
-from pydantic import BaseModel, root_validator
+from pydantic import BaseModel, root_validator, PrivateAttr
 from dataclasses import dataclass, field
-from typing import List, Union, Optional, Dict, Any
+from typing import List, Union, Optional, Dict, Any, Iterator, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import step_types
 
 def get_revision_number(filename: str) -> int:
     return int(os.path.basename(filename).split("-", 1)[0])
@@ -24,7 +31,7 @@ def sibling(fname: str, path: str) -> str:
 class Repo:
     config_path: str
     config: RepoConfig
-    revisions: List[Revision]
+    revisions: Dict[int, Revision]
 
     @staticmethod
     def parse(config_path: str) -> Repo:
@@ -35,24 +42,60 @@ class Repo:
         return Repo(config_path, config, revisions)
 
     @staticmethod
-    def parse_revlist(dir: str) -> List[Revision]:
+    def parse_revlist(dir: str) -> Dict[int, Revision]:
         assert os.path.isdir(dir)
-        revisions = []
+        revisions = {}
         for f in glob.glob(os.path.join(dir, "*.yml")):
-            revisions.append(Revision.parse(f))
-        revisions.sort(key=lambda r: r.number)
-        # check no missing revisions
-        # TODO: probably move this to a validation function
-        assert revisions[0].number == 1
-        for (cur, next) in zip(revisions[:-1], revisions[1:]):
-            assert cur.number + 1 == next.number
+            rev = Revision.parse(f)
+            revisions[rev.number] = rev
+        assert list(revisions.keys()) == list(range(1, len(revisions) + 1))
         return revisions
+
+    @property
+    def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
+        yield from sorted(self.revisions.items())
+
+    def next_parts(self, part: Optional[MigrationPart]) -> Iterator[MigrationPart]:
+        """Yields each remaining migration-part that should be run after the given part.
+
+        If the part refers to a migration not in the repo, raises MigrationNotFound.
+        """
+        found_part = (part is None)
+        subphase_0 = None if part is None else dataclasses.replace(part, subphase=0)
+        for num, revision in self.ordered_revisions:
+            for step in revision.migration.pre_deploy:
+                if found_part:
+                    yield from step.parts
+                if step._first_subphase == subphase_0:
+                    found_part = True
+                    yield from step.next_parts(part)
+
+    def get(self, part: MigrationPart) -> Tuple[Revision, step_types.StepWrapper, step_types.Subphase]:
+        rev = self.revisions[part.revision]
+        sw = rev.migration.get(part)
+        subphase = sw.step.get(part)
+        return (rev, sw, subphase)
+
 
 class RepoConfig(BaseModel):
     schema_dump_command: str
     migrations_dir: str = "migrations"
     crash_on_incompatible_version: bool = True
-    
+
+
+class ValidationError(Exception):
+    def __init__(self, filename: str, inner: pydantic.ValidationError) -> None:
+        super().__init__(f"File {filename}:\n{inner}")
+        self.filename = filename
+        self.inner = inner
+
+@contextmanager
+def parsing_file(filename: str) -> Iterator[None]:
+    try:
+        yield None
+    except pydantic.ValidationError as e:
+        raise ValidationError(filename, e) from e
+
 @dataclass
 class Revision:
     # TODO validate
@@ -70,7 +113,9 @@ class Revision:
 
     @property
     def migration(self) -> Migration:
-        return Migration.parse_obj(load_yaml(self.migration_filename))
+        with parsing_file(self.migration_filename):
+            m = Migration(parent=self, **load_yaml(self.migration_filename))
+            return m
 
     @property
     def schema_filename(self) -> str:
@@ -99,6 +144,14 @@ class MigrationPart:
     phase: int
     subphase: int
 
+    @property
+    def first_step(self) -> MigrationPart:
+        return dataclasses.replace(self, pre_deploy=True, phase=0, subphase=0)
+
+    @property
+    def first_subphase(self) -> MigrationPart:
+        return dataclasses.replace(self, subphase=0)
+
 @dataclass
 class MigrationAudit:
     id: int
@@ -107,34 +160,47 @@ class MigrationAudit:
     revert_started_at: Optional[datetime]
     revert_finished_at: Optional[datetime]
     part: MigrationPart
-    
-class Migration(BaseModel):
+
+@pydantic.dataclasses.dataclass
+class Migration:
     revision: int
     message: str
-    pre_deploy: List[StepWrapper] = []
-    post_deploy: List[StepWrapper] = []
-
-class AbstractStep(abc.ABC):
-    pass
-
-class StepWrapper(BaseModel):
-    run_ddl: Optional[DDLStep] = None
+    parent: Revision
+    pre_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
+    post_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
 
     @property
-    def step(self) -> AbstractStep:
-        result = self.run_ddl
-        assert result is not None
-        return result
+    def first_step(self) -> MigrationPart:
+        return MigrationPart(
+            revision=self.revision,
+            migration_hash=self.parent.migration_hash,
+            pre_deploy=True,
+            phase=0,
+            subphase=0
+        )
 
-class DDLStep(AbstractStep, BaseModel):
-    up: str
-    down: str
+    def get(self, part: MigrationPart) -> step_types.StepWrapper:
+        assert part.first_step == self.first_step, f"{part.first_step} != {self.first_step}"
+        steps = self.pre_deploy if part.pre_deploy else self.post_deploy
+        return steps[part.phase]
 
-class OtherStep(AbstractStep, BaseModel):
-    up: str
-    down: str
 
-AnyStep = Union[DDLStep, OtherStep]
+    def __post_init_post_parse__(self) -> None:
+        self._populate_wrapper_fields(self.pre_deploy, True)
+        self._populate_wrapper_fields(self.post_deploy, False)
 
+    def _populate_wrapper_fields(self, ws: List[step_types.StepWrapper], pre_deploy: bool) -> None:
+        for phase, sw in enumerate(ws):
+            sw._migration = self
+            sw._first_subphase = MigrationPart(
+                revision=self.revision,
+                migration_hash=self.parent.migration_hash,
+                pre_deploy=pre_deploy,
+                phase=phase,
+                subphase=0
+            )
+
+
+from . import step_types
 for s in BaseModel.__subclasses__():
     s.update_forward_refs()
