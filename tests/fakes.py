@@ -32,8 +32,11 @@ class FakeUserInterface(UserInterface):
         raise FakeExit(status)
 
     def open(self, filename: str, mode: str) -> TextIO:
-        newname = hashlib.md5(filename.encode('utf-8')).hexdigest()
-        return open(os.path.join(self.tmpdir.name, newname), mode)
+        assert not os.path.isabs(filename)
+        dir = os.path.join(self.tmpdir.name, os.path.dirname(filename))
+        os.makedirs(dir, exist_ok=True)
+        print(f"open {filename}")
+        return open(os.path.join(dir, os.path.basename(filename)), mode)
 
     def close(self) -> None:
         self.tmpdir.cleanup()

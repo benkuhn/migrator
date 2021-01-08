@@ -30,10 +30,15 @@ def db_url(control_conn) -> str:
 
 @pytest.fixture
 def ctx(db_url: str) -> Context:
-    ctx = Context(
-        "test/migrator.yml",
-        db_url,
-        FakeUserInterface()
-    )
-    with contextlib.closing(ctx):
-        yield ctx
+    old_dir = os.getcwd()
+    os.chdir("test")
+    try:
+        ctx = Context(
+            "migrator.yml",
+            db_url,
+            FakeUserInterface()
+        )
+        with contextlib.closing(ctx):
+            yield ctx
+    finally:
+        os.chdir(old_dir)
