@@ -1,5 +1,5 @@
-schemainspect
-sqlbag
+pyrseas
 psycopg2
 pydantic
 pyyaml
+toml
