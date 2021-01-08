@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass
 
-from typing import Any, NoReturn, Optional
+from typing import Any, NoReturn, Optional, TextIO
 
 from .. import models, db
 from . import text
@@ -30,6 +30,7 @@ class Context:
         if self._db is not None:
             self._db.close()
             self._db = None
+        self.ui.close()
 
 class UserInterface(abc.ABC):
     def ask_yes_no(self, message: str) -> bool:
@@ -57,6 +58,13 @@ class UserInterface(abc.ABC):
     def exit(self, status: int) -> NoReturn:
         pass
 
+    @abc.abstractmethod
+    def open(self, filename: str, mode: str) -> TextIO:
+        pass
+
+    def close(self) -> None:
+        pass
+
 class ConsoleUserInterface(UserInterface):
     def print(self, *args: object, sep: Optional[str] = ' ', end: Optional[str] = '\n') -> None:
         print(args, sep=sep, end=end)
@@ -66,3 +74,6 @@ class ConsoleUserInterface(UserInterface):
 
     def exit(self, status: int) -> NoReturn:
         exit(status)
+
+    def open(self, filename: str, mode: str) -> TextIO:
+        return open(filename, mode)
