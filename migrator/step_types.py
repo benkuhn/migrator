@@ -11,8 +11,6 @@ from . import models, db
 
 
 class StepWrapper(pydantic.BaseModel):
-    _migration: models.Migration = PrivateAttr()
-    _first_subphase: models.MigrationPart = PrivateAttr()
     run_ddl: Optional[DDLStep] = None
     create_index: Optional[CreateIndex] = None
     drop_index: Optional[DropIndex] = None
@@ -22,17 +20,6 @@ class StepWrapper(pydantic.BaseModel):
         result = self.run_ddl or self.create_index or self.drop_index
         assert result is not None
         return result
-
-    @property
-    def parts(self) -> List[models.MigrationPart]:
-        return [
-            dataclasses.replace(self._first_subphase, subphase=s)
-            for s in range(len(self.step.subphases))
-        ]
-
-    def next_parts(self, part: models.MigrationPart) -> List[models.MigrationPart]:
-        assert part.first_subphase == self._first_subphase
-        return self.parts[part.subphase + 1:]
 
 
 class AbstractStep(abc.ABC):
@@ -47,11 +34,6 @@ class AbstractStep(abc.ABC):
     @abc.abstractmethod
     def wrap(self) -> StepWrapper:
         pass
-
-    def get(self, part: models.MigrationPart) -> Subphase:
-        # FIXME: deprecate this method
-        # assert part.first_subphase == self._parent._first_subphase
-        return self.subphases[part.subphase]
 
 
 class Subphase(abc.ABC):

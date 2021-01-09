@@ -68,12 +68,6 @@ class Repo:
             for next_part, step, subphase in revision.next_parts(part):
                 yield next_part, revision, step, subphase
 
-    def get(self, part: MigrationPart) -> Tuple[Revision, step_types.StepWrapper, step_types.Subphase]:
-        rev = self.revisions[part.revision]
-        sw = rev.migration.get(part)
-        subphase = sw.step.get(part)
-        return (rev, sw, subphase)
-
 
 class RepoConfig(BaseModel):
     schema_dump_command: str
@@ -86,6 +80,7 @@ class ValidationError(Exception):
         super().__init__(f"File {filename}:\n{inner}")
         self.filename = filename
         self.inner = inner
+
 
 @contextmanager
 def parsing_file(filename: str) -> Iterator[None]:
@@ -117,7 +112,7 @@ class Revision:
     @property
     def migration(self) -> Migration:
         with parsing_file(self.migration_filename):
-            m = Migration(parent=self, **load_yaml(self.migration_filename))
+            m = Migration(**load_yaml(self.migration_filename))
             return m
 
     @property
@@ -219,43 +214,8 @@ class MigrationAudit:
 @pydantic.dataclasses.dataclass
 class Migration:
     message: str
-    parent: Revision
     pre_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
     post_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
-
-    @property
-    def first_step(self) -> MigrationPart:
-        return MigrationPart(
-            revision=self.parent.number,
-            migration_hash=self.parent.migration_hash,
-            schema_hash=self.parent.schema_hash,
-            pre_deploy=True,
-            phase=0,
-            subphase=0
-        )
-
-    def get(self, part: MigrationPart) -> step_types.StepWrapper:
-        assert part.first_step == self.first_step, f"{part.first_step} != {self.first_step}"
-        steps = self.pre_deploy if part.pre_deploy else self.post_deploy
-        return steps[part.phase]
-
-
-    def __post_init_post_parse__(self) -> None:
-        self._populate_wrapper_fields(self.pre_deploy, True)
-        self._populate_wrapper_fields(self.post_deploy, False)
-
-    def _populate_wrapper_fields(self, ws: List[step_types.StepWrapper], pre_deploy: bool) -> None:
-        for phase, sw in enumerate(ws):
-            sw._migration = self
-            sw._first_subphase = MigrationPart(
-                revision=self.parent.number,
-                migration_hash=self.parent.migration_hash,
-                schema_hash=self.parent.schema_hash,
-                pre_deploy=pre_deploy,
-                phase=phase,
-                subphase=0
-            )
-
 
 from . import step_types
 for s in BaseModel.__subclasses__():
