@@ -6,6 +6,8 @@ from typing import Any, Dict, Iterator, List, Union, Tuple
 from urllib.parse import urlparse
 
 import pyrseas.database
+import pyrseas.dbobject as dbo
+import pyrseas.dbobject.table
 
 from . import step_types
 
@@ -135,17 +137,34 @@ class MigratorDatabase(pyrseas.database.Database):
             d = self.db.dbobjdict_from_catalog(new.catalog)
             old = d.get(new.key())
             if old is not None:
-                pre_deploy_steps.append(
-                    StepHolder(
-                        obj=new,
-                        deps=new.get_deps(self.ndb),
-                        step=step_types.DDLStep(
-                            # FIXME: this is wrong for tables
-                            up=ddlify(old.alter(new)),
-                            down=ddlify(new.alter(old))
+                if isinstance(new, dbo.table.Table):
+                    pre_deploy_steps.append(
+                        StepHolder(
+                            obj=new,
+                            deps=new.get_deps(self.ndb),
+                            step=step_types.DDLStep(
+                                up=ddlify(
+                                    alter_table_add(old, new)
+                                    + alter_table_modify(old, new)
+                                ),
+                                down=ddlify(
+                                    alter_table_modify(new, old)
+                                    + new.alter_drop_columns(old)
+                                ),
+                            )
                         )
                     )
-                )
+                else:
+                    pre_deploy_steps.append(
+                        StepHolder(
+                            obj=new,
+                            deps=new.get_deps(self.ndb),
+                            step=step_types.DDLStep(
+                                up=ddlify(old.alter(new)),
+                                down=ddlify(new.alter(old))
+                            )
+                        )
+                    )
             else:
                 pre_deploy_steps.append(
                     StepHolder(
@@ -194,7 +213,7 @@ class MigratorDatabase(pyrseas.database.Database):
                             step=step_types.DDLStep(
                                 # FIXME: this is wrong
                                 up=ddlify(old.alter_drop_columns(new)),
-                                down=ddlify(new.alter_drop_columns(old))
+                                down=ddlify(alter_table_add(new, old))
                             )
                         )
                     )
@@ -232,3 +251,72 @@ class MigratorDatabase(pyrseas.database.Database):
         return pre_deploy_steps, post_deploy_steps
 
 
+def alter_table_add(self: dbo.table.Table, intable: dbo.table.Table) -> List[str]:
+    """Generate steps to transform an existing table. Copied from pyrseas"""
+    stmts = []
+    if len(intable.columns) == 0:
+        raise KeyError("Table '%s' has no columns" % intable.name)
+    colnames = [col.name for col in self.columns if not col.dropped]
+    dbcols = len(colnames)
+
+    colprivs = []
+    base = "ALTER %s %s\n    " % (self.objtype, self.qualname())
+    # check input columns
+    for (num, incol) in enumerate(intable.columns):
+        # add new columns
+        if incol.name not in colnames and not incol.inherited:
+            (stmt, descr) = incol.add()
+            stmts.append(base + "ADD COLUMN %s" % stmt)
+            colprivs.append(incol.add_privs())
+            if descr:
+                stmts.append(descr)
+
+    return stmts
+
+def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[str]:
+    stmts = []
+    if len(intable.columns) == 0:
+        raise KeyError("Table '%s' has no columns" % intable.name)
+    colnames = [col.name for col in self.columns if not col.dropped]
+    dbcols = len(colnames)
+
+    colprivs = []
+    base = "ALTER %s %s\n    " % (self.objtype, self.qualname())
+    # check input columns
+    for (num, incol) in enumerate(intable.columns):
+        if hasattr(incol, 'oldname'):
+            assert (self.columns[num].name == incol.oldname)
+            stmts.append(self.columns[num].rename(incol.name))
+        # check existing columns
+        # FIXME: is `num < dbcols` appropriate here? What if I added a column in the
+        # middle, so that the last column shares a name with one of mine?
+        if incol.name in colnames:
+            selfcol = next(col for col in self.columns if col.name == incol.name)
+            (stmt, descr) = selfcol.alter(incol)
+            if stmt:
+                stmts.append(base + stmt)
+            colprivs.append(selfcol.diff_privileges(incol))
+            if descr:
+                stmts.append(descr)
+
+    newopts = []
+    if intable.options is not None:
+        newopts = intable.options
+    diff_opts = self.diff_options(newopts)
+    if diff_opts:
+        stmts.append("ALTER %s %s %s" % (self.objtype, self.identifier(),
+                                         diff_opts))
+    if colprivs:
+        stmts.append(colprivs)
+    # FIXME maybe refuse to emit this...
+    if intable.tablespace is not None:
+        if self.tablespace is None \
+                or self.tablespace != intable.tablespace:
+            stmts.append(base + "SET TABLESPACE %s"
+                         % dbo.table.quote_id(intable.tablespace))
+    elif self.tablespace is not None:
+        stmts.append(base + "SET TABLESPACE pg_default")
+
+    stmts.append(super(dbo.table.Table, self).alter(intable))
+
+    return stmts
