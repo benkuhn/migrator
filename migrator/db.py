@@ -1,5 +1,4 @@
-"""Abstraction layer over a database
-"""
+"""Abstraction layer over a database"""
 import contextlib
 import dataclasses
 import os
@@ -18,17 +17,19 @@ import psycopg2
 
 from . import models
 
-SCHEMA_DDL = f"""
-CREATE SCHEMA {NAME};
+SCHEMA_NAME = f"{NAME}_status"
 
-CREATE TABLE {NAME}.migrations (
+SCHEMA_DDL = f"""
+CREATE SCHEMA {SCHEMA_NAME};
+
+CREATE TABLE {SCHEMA_NAME}.migrations (
   revision INT NOT NULL,
   migration_hash BYTEA NOT NULL,
   schema_hash BYTEA NOT NULL,
   file TEXT NOT NULL
 );
 
-CREATE TABLE {NAME}.migration_audit (
+CREATE TABLE {SCHEMA_NAME}.migration_audit (
   id SERIAL PRIMARY KEY,
   started_at TIMESTAMP WITH TIME ZONE NOT NULL,
   revision INT NOT NULL,
@@ -42,7 +43,7 @@ CREATE TABLE {NAME}.migration_audit (
   revert_finished_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE TABLE {NAME}.connections (
+CREATE TABLE {SCHEMA_NAME}.connections (
   revision INT NOT NULL,
   schema_hash BYTEA NOT NULL,
   pid INT NOT NULL,
@@ -95,7 +96,7 @@ class Database:
           SELECT FROM information_schema.schemata
           WHERE schema_name = %(schema)s
         );
-        """, schema=NAME)[0][0]
+        """, schema=SCHEMA_NAME)[0][0]
 
     def create_schema(self) -> None:
         with self.tx():
@@ -104,7 +105,7 @@ class Database:
     def get_last_finished(self) -> Optional[models.MigrationAudit]:
         result = self._fetch(f"""
         SELECT {AUDIT_FIELDS}
-        FROM {NAME}.migration_audit
+        FROM {SCHEMA_NAME}.migration_audit
         WHERE finished_at IS NOT NULL
         AND revert_finished_at IS NOT NULL
         ORDER BY id DESC
@@ -115,7 +116,7 @@ class Database:
 
     def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
         result = self._fetch_tx(f"""
-        INSERT INTO {NAME}.migration_audit
+        INSERT INTO {SCHEMA_NAME}.migration_audit
             (started_at, {PHASE_INDEX_FIELDS})
         VALUES
             (now(), %s, %s, %s, %s, %s, %s)
@@ -124,7 +125,7 @@ class Database:
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
         result = self._fetch_tx(f"""
-        UPDATE {NAME}.migration_audit
+        UPDATE {SCHEMA_NAME}.migration_audit
             SET finished_at = now()
         WHERE id = %s
         RETURNING {AUDIT_FIELDS}""", (audit.id, ))
@@ -145,7 +146,14 @@ def temp_db_url(control_conn: Any) -> Iterator[str]:
     db_name = ''.join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
     cur.execute("CREATE DATABASE " + db_name)
     try:
-        yield re.sub("/[^/]+$", "/" + db_name, os.environ["DATABASE_URL"])
+        url = os.environ["DATABASE_URL"]
+        name = replace_db(url, db_name)
+        yield name
     finally:
         cur.execute("DROP DATABASE " + db_name)
         cur.close()
+
+
+def replace_db(database_url, db_name):
+    name = re.sub("/[^/]+$", "/" + db_name, database_url)
+    return name

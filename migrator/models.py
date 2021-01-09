@@ -145,14 +145,8 @@ class Revision:
             if not index or next_index > index:
                 yield next_index, change, phase
 
-
     def phases(self) -> Iterator[IndexChangePhase]:
-        index = self.first_index
-        for i_change, change in enumerate(self.migration.pre_deploy):
-            for i_phase, phase in enumerate(change.inner.phases):
-                new_index = dataclasses.replace(index, change=i_change, phase=i_phase)
-                yield new_index, change, phase
-
+        return self.migration.phases(self.first_index)
 
     @property
     def first_index(self) -> PhaseIndex:
@@ -217,6 +211,16 @@ class Migration:
     message: str
     pre_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
     post_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
+
+    def phases(self, index: PhaseIndex) -> Tuple[IndexChangePhase]:
+        for i_change, change in enumerate(self.pre_deploy):
+            for i_phase, phase in enumerate(change.inner.phases):
+                new_index = dataclasses.replace(index, change=i_change, phase=i_phase)
+                yield new_index, change, phase
+        for i_change, change in enumerate(self.post_deploy):
+            for i_phase, phase in enumerate(change.inner.phases):
+                new_index = dataclasses.replace(index, pre_deploy=False, change=i_change, phase=i_phase)
+                yield new_index, change, phase
 
 from . import changes
 for s in BaseModel.__subclasses__():

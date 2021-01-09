@@ -3,7 +3,10 @@ import os
 import tempfile
 from typing import Any, NoReturn, TextIO
 
+import psycopg2
+
 from migrator.commands import UserInterface, text
+from migrator import db
 
 
 class FakeExit(Exception):
@@ -40,3 +43,23 @@ class FakeUserInterface(UserInterface):
 
     def close(self) -> None:
         self.tmpdir.cleanup()
+
+
+def schema_db_url(conn: Any, schema_sql: str) -> str:
+    hash = hashlib.md5(schema_sql.encode("ascii")).hexdigest()[:10]
+    db_name = f"test_{hash}"
+    url = db.replace_db(os.environ["DATABASE_URL"], db_name)
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM pg_database WHERE datname = %s", (db_name, ))
+        results = cur.fetchall()
+        if len(results):
+            return url
+        cur.execute(f"CREATE DATABASE {db_name}")
+        with psycopg2.connect(url) as conn2, conn2.cursor() as cur2:
+            try:
+                cur2.execute(schema_sql)
+                return url
+            except:
+                conn.rollback()
+                cur.execute(f"DROP DATABASE {db_name}")
+                raise

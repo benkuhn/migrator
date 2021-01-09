@@ -161,6 +161,12 @@ class MigratorDatabase(pyrseas.database.Database):
                             + new.alter_drop_columns(old)
                         ),
                     ))
+                elif isinstance(new, dbo.table.Sequence):
+                    # FIXME: sequence diff
+                    # This is breaking because pyrseas doesn't correctly handle
+                    # minvalue being auto-converted to MAX_BIGINT, so spuriously emits
+                    # ALTER SEQUENCE ... NO MINVALUE NO MAXVALUE
+                    pass
                 else:
                     emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
                         up=ddlify(old.alter(new)),

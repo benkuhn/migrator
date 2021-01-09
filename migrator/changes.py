@@ -103,12 +103,12 @@ def q(id: str) -> str:
 
 
 class IndexMixin(BaseModel):
-    unique: bool
+    unique: bool = False
     name: str
-    table: str
+    table: str  # TODO: I'd prefer to use "on" here but it needs to be escaped :(
     expr: str
-    where: Optional[str] = None
     using: Optional[str] = None
+    where: Optional[str] = None
 
     @property
     def create_sql(self) -> str:
