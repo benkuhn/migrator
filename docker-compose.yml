@@ -4,8 +4,6 @@ services:
     environment:
       POSTGRES_USER: migrator
       POSTGRES_PASSWORD: rotargim
-    volumes:
-      - ./volumes/pgdata:/var/lib/postgresql/data
     command:
       - postgres
       - -c
