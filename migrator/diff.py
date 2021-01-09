@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Union, Tuple
+from typing import Any, Dict, Iterator, List, Union, Tuple, TypeVar
 from urllib.parse import urlparse
 
 import pyrseas.database
@@ -11,7 +11,7 @@ import pyrseas.dbobject.table
 import pyrseas.dbobject.index
 import yaml
 
-from . import step_types
+from . import changes
 
 Database = Any
 
@@ -52,20 +52,22 @@ def load(url: str) -> Iterator[MigratorDatabase]:
             conn.close()
 
 
-def diff(from_url: str, to_url: str) -> Tuple[
-    List[step_types.StepWrapper], List[step_types.StepWrapper]
-]:
+T = TypeVar("T")
+TwoLists = Tuple[List[T], List[T]]
+
+
+def diff(from_url: str, to_url: str) -> TwoLists[changes.Change]:
     with load(from_url) as from_db, load(to_url) as to_db:
         in_map = to_db.to_map()
-        pre_deploy, post_deploy = from_db.diff_map_steps(in_map)
-        return flatten_steps(pre_deploy), flatten_steps(post_deploy)
+        pre_deploy, post_deploy = from_db.diff_map_changes(in_map)
+        return flatten_holders(pre_deploy), flatten_holders(post_deploy)
 
 
 @dataclass
-class StepHolder:
+class ChangeHolder:
     obj: str
     deps: List[str]
-    step: step_types.AbstractStep
+    change: changes.AbstractChange
 
 
 def ddlify(stmts):
@@ -83,31 +85,23 @@ class YamlMultiline(str):
 yaml.add_representer(YamlMultiline, YamlMultiline.bar_presenter, Dumper=yaml.SafeDumper)
 
 
-def flatten_steps(steps: List[StepHolder]) -> List[step_types.StepWrapper]:
+def flatten_holders(holders: List[ChangeHolder]) -> List[changes.Change]:
     ret = []
-    for holder in steps:
-        step = holder.step
-        if isinstance(step, step_types.DDLStep):
-            if not (step.up or step.down):
+    for holder in holders:
+        change = holder.change
+        if isinstance(change, changes.DDLStep):
+            if not (change.up or change.down):
                 continue
-        ret.append(step.wrap())
+        ret.append(change.wrap())
     return ret
 
 
 class MigratorDatabase(pyrseas.database.Database):
-    """Subclass of pyrseas Database that knows how to emit migration steps instead of
+    """Subclass of pyrseas Database that knows how to emit changesets instead of
     SQL statements."""
 
-    def diff_map_steps(self, input_map, quote_reserved=True):
-        """Generate SQL to transform an existing database
-        :param input_map: a YAML map defining the new database
-        :param quote_reserved: fetch reserved words
-        :return: list of SQL statements
-        Compares the existing database definition, as fetched from the
-        catalogs, to the input YAML map and generates SQL statements
-        to transform the database into the one represented by the
-        input.
-        """
+    def diff_map_changes(self, input_map, quote_reserved=True) -> TwoLists[ChangeHolder]:
+        """Copied from Pyrseas, but emits ChangeHolder instead."""
         from pyrseas.dbobject.table import Table
         from pyrseas.database import fetch_reserved_words, itemgetter, flatten
 
@@ -145,10 +139,10 @@ class MigratorDatabase(pyrseas.database.Database):
         # Then generate the sql for all the objects, walking in dependency
         # order over all the db objects
 
-        pre_deploy_steps = []
-        def emit(steps, obj, db, step) -> None:
-            steps.append(StepHolder(
-                obj=obj, deps=obj.get_deps(db), step=step
+        pre_deploy_changes = []
+        def emit(changes, obj, db, change) -> None:
+            changes.append(ChangeHolder(
+                obj=obj, deps=obj.get_deps(db), change=change
             ))
 
 
@@ -157,7 +151,7 @@ class MigratorDatabase(pyrseas.database.Database):
             old = d.get(new.key())
             if old is not None:
                 if isinstance(new, dbo.table.Table):
-                    emit(pre_deploy_steps, new, self.ndb, step_types.DDLStep(
+                    emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
                         up=ddlify(
                             alter_table_add(old, new)
                             + alter_table_modify(old, new)
@@ -168,16 +162,16 @@ class MigratorDatabase(pyrseas.database.Database):
                         ),
                     ))
                 else:
-                    emit(pre_deploy_steps, new, self.ndb, step_types.DDLStep(
+                    emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
                         up=ddlify(old.alter(new)),
                         down=ddlify(new.alter(old))
                     ))
             else:
                 if isinstance(new, dbo.index.Index):
                     assert not new.cluster
-                    emit(pre_deploy_steps, new, self.ndb, create_index_step(new))
+                    emit(pre_deploy_changes, new, self.ndb, make_create_index(new))
                 else:
-                    emit(pre_deploy_steps, new, self.ndb, step_types.DDLStep(
+                    emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
                         up=ddlify(new.create_sql(self.dbconn.version)),
                         down=ddlify(new.drop())
                     ))
@@ -204,18 +198,18 @@ class MigratorDatabase(pyrseas.database.Database):
         old_objs = self.dep_sorted(old_objs, self.db)
         old_objs.reverse()
 
-        post_deploy_steps = []
+        post_deploy_changes = []
         # Drop the objects that don't appear in the new db
         for old in old_objs:
             d = self.ndb.dbobjdict_from_catalog(old.catalog)
             if isinstance(old, Table):
                 new = d.get(old.key())
                 if new is not None:
-                    post_deploy_steps.append(
-                        StepHolder(
+                    post_deploy_changes.append(
+                        ChangeHolder(
                             obj=old,
                             deps=old.get_deps(self.db),
-                            step=step_types.DDLStep(
+                            change=changes.DDLStep(
                                 # FIXME: this is wrong
                                 up=ddlify(old.alter_drop_columns(new)),
                                 down=ddlify(alter_table_add(new, old))
@@ -224,11 +218,11 @@ class MigratorDatabase(pyrseas.database.Database):
                     )
             if (not getattr(old, '_nodrop', False)
                     and old.key() not in d and old.key() != 'pg_catalog'):
-                post_deploy_steps.append(
-                    StepHolder(
+                post_deploy_changes.append(
+                    ChangeHolder(
                         obj=old,
                         deps=old.get_deps(self.db),
-                        step=step_types.DDLStep(
+                        change=changes.DDLStep(
                             up=ddlify(old.drop()),
                             down=ddlify(old.create_sql(self.dbconn.version)),
                         )
@@ -253,11 +247,11 @@ class MigratorDatabase(pyrseas.database.Database):
             stmts.insert(0, "SET check_function_bodies = false")
         """
 
-        return pre_deploy_steps, post_deploy_steps
+        return pre_deploy_changes, post_deploy_changes
 
 
 def alter_table_add(self: dbo.table.Table, intable: dbo.table.Table) -> List[str]:
-    """Generate steps to transform an existing table. Copied from pyrseas"""
+    """Generate DDL list to transform an existing table. Copied from pyrseas"""
     stmts = []
     if len(intable.columns) == 0:
         raise KeyError("Table '%s' has no columns" % intable.name)
@@ -277,6 +271,7 @@ def alter_table_add(self: dbo.table.Table, intable: dbo.table.Table) -> List[str
                 stmts.append(descr)
 
     return stmts
+
 
 def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[str]:
     stmts = []
@@ -327,10 +322,10 @@ def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[
     return stmts
 
 
-def create_index_step(index: dbo.index.Index):
+def make_create_index(index: dbo.index.Index) -> changes.CreateIndex:
     assert not index.cluster, "clustering not supported"
     assert index.tablespace is None, "tablespace not supported"
-    return step_types.CreateIndex(
+    return changes.CreateIndex(
         unique=index.unique,
         name=index.name,
         table=index.qualname(index.schema, index.table),

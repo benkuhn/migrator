@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import List, Union, Optional, Dict, Any, Iterator, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from . import step_types
+    from . import changes
 
 def get_revision_number(filename: str) -> int:
     return int(os.path.basename(filename).split("-", 1)[0])
@@ -149,7 +149,7 @@ class Revision:
     def parts(self) -> Iterator[PartStepSubphase]:
         part = self.first_step
         for i_phase, sw in enumerate(self.migration.pre_deploy):
-            for i_subphase, subphase in enumerate(sw.step.subphases):
+            for i_subphase, subphase in enumerate(sw.inner.phases):
                 newpart = dataclasses.replace(part, phase=i_phase, subphase=i_subphase)
                 yield newpart, sw, subphase
 
@@ -195,9 +195,9 @@ class MigrationPart:
     def __gt__(self, other: MigrationPart) -> bool:
         return self.sortkey > other.sortkey
 
-PartStepSubphase = Tuple[MigrationPart, "step_types.StepWrapper", "step_types.Subphase"]
+PartStepSubphase = Tuple[MigrationPart, "changes.StepWrapper", "changes.Subphase"]
 PartRevisionStepSubphase = Tuple[
-    MigrationPart, Revision, "step_types.StepWrapper", "step_types.Subphase"
+    MigrationPart, Revision, "changes.StepWrapper", "changes.Subphase"
 ]
 
 
@@ -214,9 +214,9 @@ class MigrationAudit:
 @pydantic.dataclasses.dataclass
 class Migration:
     message: str
-    pre_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
-    post_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
+    pre_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
+    post_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
 
-from . import step_types
+from . import changes
 for s in BaseModel.__subclasses__():
     s.update_forward_refs()

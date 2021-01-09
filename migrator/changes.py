@@ -10,39 +10,39 @@ from pydantic import BaseModel, PrivateAttr
 from . import models, db
 
 
-class StepWrapper(pydantic.BaseModel):
+class Change(pydantic.BaseModel):
     run_ddl: Optional[DDLStep] = None
     create_index: Optional[CreateIndex] = None
     drop_index: Optional[DropIndex] = None
 
     @property
-    def step(self) -> AbstractStep:
+    def inner(self) -> AbstractChange:
         result = self.run_ddl or self.create_index or self.drop_index
         assert result is not None
         return result
 
 
-class AbstractStep(abc.ABC):
+class AbstractChange(abc.ABC):
     @property
-    def subphases(self) -> List[Subphase]:
-        return self._subphases()
+    def phases(self) -> List[Phase]:
+        return self._phases()
 
     @abc.abstractmethod
-    def _subphases(self) -> List[Subphase]:
+    def _phases(self) -> List[Phase]:
         pass
 
     @abc.abstractmethod
-    def wrap(self) -> StepWrapper:
+    def wrap(self) -> Change:
         pass
 
 
-class Subphase(abc.ABC):
+class Phase(abc.ABC):
     @abc.abstractmethod
     def run(self, db: db.Database, part: models.MigrationPart) -> None:
         pass
 
 
-class TransactionalSubphase(Subphase):
+class TransactionalPhase(Phase):
     def run(self, db: db.Database, part: models.MigrationPart) -> None:
         with db.tx():
             audit = db.audit_part_start(part)
@@ -54,7 +54,7 @@ class TransactionalSubphase(Subphase):
         pass
 
 
-class IdempotentSubphase(Subphase):
+class IdempotentPhase(Phase):
     def run(self, db: db.Database, part: models.MigrationPart) -> None:
         with db.tx():
             # FIXME: what happens if we already started?
@@ -69,7 +69,7 @@ class IdempotentSubphase(Subphase):
 
 
 @dataclasses.dataclass
-class DDLSubphase(TransactionalSubphase):
+class TransactionalDDLPhase(TransactionalPhase):
     up: str
     down: str
 
@@ -78,7 +78,7 @@ class DDLSubphase(TransactionalSubphase):
 
 
 @dataclasses.dataclass
-class IdempotentDDLSubphase(IdempotentSubphase):
+class IdempotentDDLPhase(IdempotentPhase):
     up: str
     down: str
 
@@ -86,15 +86,15 @@ class IdempotentDDLSubphase(IdempotentSubphase):
         db.cur.execute(self.up)
 
 
-class DDLStep(BaseModel, AbstractStep):
+class DDLStep(BaseModel, AbstractChange):
     up: str
     down: str
 
-    def _subphases(self) -> List[Subphase]:
-        return [DDLSubphase(self.up, self.down)]
+    def _phases(self) -> List[Phase]:
+        return [TransactionalDDLPhase(self.up, self.down)]
 
-    def wrap(self) -> StepWrapper:
-        return StepWrapper(run_ddl=self)
+    def wrap(self) -> Change:
+        return Change(run_ddl=self)
 
 
 def q(id: str) -> str:
@@ -125,24 +125,17 @@ class IndexMixin(BaseModel):
         return f"DROP INDEX CONCURRENTLY IF EXISTS {q(self.name)}"
 
 
-class CreateIndex(IndexMixin, AbstractStep):
-    def wrap(self) -> StepWrapper:
-        return StepWrapper(create_index=self)
+class CreateIndex(IndexMixin, AbstractChange):
+    def wrap(self) -> Change:
+        return Change(create_index=self)
 
-    def _subphases(self) -> List[Subphase]:
-        return [IdempotentDDLSubphase(self.create_sql, self.drop_sql)]
-
-
-class DropIndex(IndexMixin, AbstractStep):
-    def wrap(self) -> StepWrapper:
-        return StepWrapper(drop_index=self)
-
-    def _subphases(self) -> List[Subphase]:
-        return [IdempotentDDLSubphase(self.drop_sql, self.create_sql)]
+    def _phases(self) -> List[Phase]:
+        return [IdempotentDDLPhase(self.create_sql, self.drop_sql)]
 
 
-class OtherStep(AbstractStep, BaseModel):
-    up: str
-    down: str
+class DropIndex(IndexMixin, AbstractChange):
+    def wrap(self) -> Change:
+        return Change(drop_index=self)
 
-
+    def _phases(self) -> List[Phase]:
+        return [IdempotentDDLPhase(self.drop_sql, self.create_sql)]
