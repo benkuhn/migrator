@@ -23,9 +23,6 @@ class StepWrapper(pydantic.BaseModel):
         assert result is not None
         return result
 
-    def __post_init_post_parse__(self) -> None:
-        self.step._parent = self
-
     @property
     def parts(self) -> List[models.MigrationPart]:
         return [

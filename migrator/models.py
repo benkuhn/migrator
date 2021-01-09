@@ -60,15 +60,13 @@ class Repo:
 
         If the part refers to a migration not in the repo, raises MigrationNotFound.
         """
-        found_part = (part is None)
-        subphase_0 = None if part is None else dataclasses.replace(part, subphase=0)
         for num, revision in self.ordered_revisions:
-            for step in revision.migration.pre_deploy:
-                if found_part:
-                    yield from step.parts
-                if step._first_subphase == subphase_0:
-                    found_part = True
-                    yield from step.next_parts(part)
+            if part and part.revision < num:
+                continue
+            if part and part.revision == num:
+                assert revision.first_step == part.first_step  # FIXME error
+            for next_part, step, subphase in revision.next_parts(part):
+                yield next_part, revision, step, subphase
 
     def get(self, part: MigrationPart) -> Tuple[Revision, step_types.StepWrapper, step_types.Subphase]:
         rev = self.revisions[part.revision]
@@ -95,6 +93,7 @@ def parsing_file(filename: str) -> Iterator[None]:
         yield None
     except pydantic.ValidationError as e:
         raise ValidationError(filename, e) from e
+
 
 @dataclass
 class Revision:
@@ -144,6 +143,34 @@ class Revision:
         number = get_revision_number(filename)
         return Revision(number, filename)
 
+    def next_parts(self, part: Optional[MigrationPart]) -> Iterator[PartStepSubphase]:
+        if part and part.revision > self.number:
+            return
+        for next_part, step, subphase in self.parts():
+            if not part or next_part > part:
+                yield next_part, step, subphase
+
+
+    def parts(self) -> Iterator[PartStepSubphase]:
+        part = self.first_step
+        for i_phase, sw in enumerate(self.migration.pre_deploy):
+            for i_subphase, subphase in enumerate(sw.step.subphases):
+                newpart = dataclasses.replace(part, phase=i_phase, subphase=i_subphase)
+                yield newpart, sw, subphase
+
+
+    @property
+    def first_step(self) -> MigrationPart:
+        return MigrationPart(
+            revision=self.number,
+            migration_hash=self.migration_hash,
+            schema_hash=self.schema_hash,
+            pre_deploy=True,
+            phase=0,
+            subphase=0
+        )
+
+
 @dataclass
 class MigrationPart:
     revision: int
@@ -160,6 +187,25 @@ class MigrationPart:
     @property
     def first_subphase(self) -> MigrationPart:
         return dataclasses.replace(self, subphase=0)
+
+    @property
+    def sortkey(self) -> Tuple[int, int, int, int]:
+        return (
+            self.revision,
+            0 if self.pre_deploy else 1,
+            self.phase,
+            self.subphase
+        )
+
+    def __gt__(self, other: MigrationPart) -> bool:
+        return self.sortkey > other.sortkey
+
+PartStepSubphase = Tuple[MigrationPart, "step_types.StepWrapper", "step_types.Subphase"]
+PartRevisionStepSubphase = Tuple[
+    MigrationPart, Revision, "step_types.StepWrapper", "step_types.Subphase"
+]
+
+
 
 @dataclass
 class MigrationAudit:
