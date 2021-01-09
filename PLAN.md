@@ -12,7 +12,7 @@ Riskiest parts:
   - [x] YAML formatting
   - [ ] Fix names
   - [ ] Speed up tests
-- [ ] Remove nulls in pydantic dicts
+- [x] Remove nulls in pydantic dicts
 - [ ] `$cmd revision` codegen works for:
   - [ ] indexes
   - [ ] constraints
