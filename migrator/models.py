@@ -104,6 +104,10 @@ class Revision:
 
     @property
     def _migration_text(self) -> str:
+        # FIXME: hack so that we can create a partial revision in order to serialize a
+        # migration...
+        if not os.path.exists(self.migration_filename):
+            return ''
         with open(self.migration_filename) as f:
             return f.read()
 
@@ -123,6 +127,10 @@ class Revision:
 
     @property
     def _schema_text(self) -> str:
+        # FIXME: hack so that we can create a partial revision in order to serialize a
+        # migration...
+        if not os.path.exists(self.migration_filename):
+            return ''
         with open(self.schema_filename) as f:
             return f.read()
         

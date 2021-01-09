@@ -1,14 +1,17 @@
 from migrator.commands import Context, text, revision
 
-EXPECTED_MIGRATION = """
-message: a new revision
+EXPECTED_MIGRATION = """message: a new revision
 pre_deploy:
 - run_ddl:
-    up: |
-      ALTER TABLE public.users
-          ADD COLUMN name text NOT NULL;
-    down: |
-      ALTER TABLE public.users DROP COLUMN name;
+    down: 'GRANT ALL ON SCHEMA public TO chimelife;
+
+      GRANT ALL ON SCHEMA public TO PUBLIC;'
+    up: 'REVOKE ALL ON SCHEMA public FROM chimelife;
+
+      REVOKE ALL ON SCHEMA public FROM PUBLIC;'
+- run_ddl:
+    down: ''
+    up: "ALTER TABLE public.users\n    ADD COLUMN name text NOT NULL;"
 """
 
 def test_revision(ctx: Context) -> None:
@@ -20,5 +23,6 @@ def test_revision(ctx: Context) -> None:
     assert dumped_schema == source_schema
 
     with ctx.ui.open("migrations/3-migration.yml", "r") as f:
-        assert f.read() == EXPECTED_MIGRATION
+        text = f.read()
+        assert text == EXPECTED_MIGRATION
     # FIXME: assert something about UI output

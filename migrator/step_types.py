@@ -10,8 +10,8 @@ from pydantic import BaseModel, PrivateAttr
 from . import models, db
 
 
-@pydantic.dataclasses.dataclass
-class StepWrapper:
+#@pydantic.dataclasses.dataclass
+class StepWrapper(pydantic.BaseModel):
     _migration: models.Migration = PrivateAttr()
     _first_subphase: models.MigrationPart = PrivateAttr()
     run_ddl: Optional[DDLStep] = None
@@ -54,9 +54,14 @@ class AbstractStep(abc.ABC):
     def _subphases(self) -> List[Subphase]:
         pass
 
+    @abc.abstractmethod
+    def wrap(self) -> StepWrapper:
+        pass
+
     def get(self, part: models.MigrationPart) -> Subphase:
         assert part.first_subphase == self._parent._first_subphase
         return self.subphases[part.subphase]
+
 
 class Subphase(abc.ABC):
     parent: AbstractStep
@@ -89,13 +94,15 @@ class DDLSubphase(TransactionalSubphase):
         db.cur.execute(self.up)
 
 
-@pydantic.dataclasses.dataclass
-class DDLStep(AbstractStep):
+class DDLStep(BaseModel, AbstractStep):
     up: str
     down: str
 
     def _subphases(self) -> List[Subphase]:
         return [DDLSubphase(self.up, self.down)]
+
+    def wrap(self) -> StepWrapper:
+        return StepWrapper(run_ddl=self)
 
 class OtherStep(AbstractStep, BaseModel):
     up: str

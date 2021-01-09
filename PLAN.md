@@ -6,6 +6,7 @@ Min viable "get something working"
 
 Riskiest parts:
 
+- [ ] pair statement and reverse
 - [ ] `$cmd revision` codegen works for:
   - [ ] indexes
   - [ ] constraints

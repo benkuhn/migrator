@@ -5,6 +5,7 @@ import textwrap
 from contextlib import contextmanager
 
 import psycopg2
+import yaml
 
 from . import Context, text
 from .. import models, diff, db
@@ -41,16 +42,23 @@ def revision(ctx: Context, message: str) -> None:
 
     with temp_db_with_schema(db, old_schema_sql) as old_url, \
         temp_db_with_schema(db, new_schema_sql) as new_url:
-        down_ddl = get_migration_ddl(new_url, old_url)
-        up_ddl = get_migration_ddl(old_url, new_url)
+        pre_deploy, post_deploy = diff.diff(old_url, new_url)
+
+    # FIXME: hack to make parent references work :( To fix, probably refactor to use
+    # visitor pattern so we don't need parents or something?
+    with ctx.ui.open(migration_path, "w") as f:
+        f.write('')
+
+    migration = {
+        "message": message,
+        "pre_deploy": [
+            step.dict()
+            for step in pre_deploy
+        ]
+    }
 
     with ctx.ui.open(migration_path, "w") as f:
-        f.write(MIGRATION_TEMPLATE.format(
-            num=num,
-            up_ddl=textwrap.indent(up_ddl, DDL_INDENT),
-            down_ddl=textwrap.indent(down_ddl, DDL_INDENT),
-            message=message
-        ))
+        f.write(yaml.safe_dump(migration))
 
 @contextmanager
 def temp_db_with_schema(db: db.Database, schema: str) -> str:
