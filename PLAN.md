@@ -8,7 +8,11 @@ Riskiest parts:
 
 - [x] pair statement and reverse
 - [x] fix ALTER TABLE output
-- [x] YAML formatting
+- [ ] QOL impvmts
+  - [x] YAML formatting
+  - [ ] Fix names
+  - [ ] Speed up tests
+- [ ] Remove nulls in pydantic dicts
 - [ ] `$cmd revision` codegen works for:
   - [ ] indexes
   - [ ] constraints

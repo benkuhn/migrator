@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import pyrseas.database
 import pyrseas.dbobject as dbo
 import pyrseas.dbobject.table
+import pyrseas.dbobject.index
 import yaml
 
 from . import step_types
@@ -145,49 +146,41 @@ class MigratorDatabase(pyrseas.database.Database):
         # order over all the db objects
 
         pre_deploy_steps = []
+        def emit(steps, obj, db, step) -> None:
+            steps.append(StepHolder(
+                obj=obj, deps=obj.get_deps(db), step=step
+            ))
+
+
         for new in new_objs:
             d = self.db.dbobjdict_from_catalog(new.catalog)
             old = d.get(new.key())
             if old is not None:
                 if isinstance(new, dbo.table.Table):
-                    pre_deploy_steps.append(
-                        StepHolder(
-                            obj=new,
-                            deps=new.get_deps(self.ndb),
-                            step=step_types.DDLStep(
-                                up=ddlify(
-                                    alter_table_add(old, new)
-                                    + alter_table_modify(old, new)
-                                ),
-                                down=ddlify(
-                                    alter_table_modify(new, old)
-                                    + new.alter_drop_columns(old)
-                                ),
-                            )
-                        )
-                    )
+                    emit(pre_deploy_steps, new, self.ndb, step_types.DDLStep(
+                        up=ddlify(
+                            alter_table_add(old, new)
+                            + alter_table_modify(old, new)
+                        ),
+                        down=ddlify(
+                            alter_table_modify(new, old)
+                            + new.alter_drop_columns(old)
+                        ),
+                    ))
                 else:
-                    pre_deploy_steps.append(
-                        StepHolder(
-                            obj=new,
-                            deps=new.get_deps(self.ndb),
-                            step=step_types.DDLStep(
-                                up=ddlify(old.alter(new)),
-                                down=ddlify(new.alter(old))
-                            )
-                        )
-                    )
+                    emit(pre_deploy_steps, new, self.ndb, step_types.DDLStep(
+                        up=ddlify(old.alter(new)),
+                        down=ddlify(new.alter(old))
+                    ))
             else:
-                pre_deploy_steps.append(
-                    StepHolder(
-                        obj=new,
-                        deps=new.get_deps(self.ndb),
-                        step=step_types.DDLStep(
-                            up=ddlify(new.create_sql(self.dbconn.version)),
-                            down=ddlify(new.drop())
-                        )
-                    )
-                )
+                if isinstance(new, dbo.index.Index):
+                    assert not new.cluster
+                    emit(pre_deploy_steps, new, self.ndb, create_index_step(new))
+                else:
+                    emit(pre_deploy_steps, new, self.ndb, step_types.DDLStep(
+                        up=ddlify(new.create_sql(self.dbconn.version)),
+                        down=ddlify(new.drop())
+                    ))
 
                 # Check if the object just created was renamed, in which case
                 # don't try to delete the original one
@@ -332,3 +325,16 @@ def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[
     stmts.append(super(dbo.table.Table, self).alter(intable))
 
     return stmts
+
+
+def create_index_step(index: dbo.index.Index):
+    assert not index.cluster, "clustering not supported"
+    assert index.tablespace is None, "tablespace not supported"
+    return step_types.CreateIndex(
+        unique=index.unique,
+        name=index.name,
+        table=index.qualname(index.schema, index.table),
+        using=None if index.access_method == "btree" else index.access_method,
+        expr=index.key_expressions(),
+        where=index.predicate
+    )
