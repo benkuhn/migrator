@@ -14,10 +14,18 @@ class Change(pydantic.BaseModel):
     run_ddl: Optional[DDLStep] = None
     create_index: Optional[CreateIndex] = None
     drop_index: Optional[DropIndex] = None
+    add_check_constraint: Optional[AddCheckConstraint] = None
+    drop_check_constraint: Optional[DropCheckConstraint] = None
 
     @property
     def inner(self) -> AbstractChange:
-        result = self.run_ddl or self.create_index or self.drop_index
+        result = (
+                self.run_ddl
+                or self.create_index
+                or self.drop_index
+                or self.add_check_constraint
+                or self.drop_check_constraint
+        )
         assert result is not None
         return result
 
@@ -70,20 +78,22 @@ class IdempotentPhase(Phase):
 
 @dataclasses.dataclass
 class TransactionalDDLPhase(TransactionalPhase):
-    up: str
-    down: str
+    up: Optional[str]
+    down: Optional[str]
 
     def run_inner(self, db: db.Database) -> None:
-        db.cur.execute(self.up)
+        if self.up:
+            db.cur.execute(self.up)
 
 
 @dataclasses.dataclass
 class IdempotentDDLPhase(IdempotentPhase):
-    up: str
-    down: str
+    up: Optional[str]
+    down: Optional[str]
 
     def run_inner(self, db: db.Database) -> None:
-        db.cur.execute(self.up)
+        if self.up:
+            db.cur.execute(self.up)
 
 
 class DDLStep(BaseModel, AbstractChange):
@@ -139,3 +149,54 @@ class DropIndex(IndexMixin, AbstractChange):
 
     def _phases(self) -> List[Phase]:
         return [IdempotentDDLPhase(self.drop_sql, self.create_sql)]
+
+
+class CheckConstraintMixin(BaseModel):
+    table: Optional[str] = None
+    domain: Optional[str] = None
+    name: str
+    expr: str
+
+    @property
+    def alter(self):
+        objtype = "TABLE" if self.table else "DOMAIN"
+        name = self.table or self.domain
+        return f"ALTER {objtype} {q(name)}"
+
+    @property
+    def add_sql(self) -> str:
+        return f"""
+        {self.alter} ADD CONSTRAINT {q(self.name)}
+        CHECK {self.expr} NOT VALID"""
+
+    @property
+    def validate_sql(self) -> str:
+        return f"{self.alter} VALIDATE CONSTRAINT {q(self.name)}"
+
+    @property
+    def drop_sql(self) -> str:
+        return f"{self.alter} DROP CONSTRAINT {q(self.name)}"
+
+
+class AddCheckConstraint(CheckConstraintMixin, AbstractChange):
+    def wrap(self) -> Change:
+        return Change(add_check_constraint=self)
+
+    def _phases(self) -> List[Phase]:
+        return [
+            TransactionalDDLPhase(self.add_sql, self.drop_sql),
+            TransactionalDDLPhase(self.validate_sql, None),
+        ]
+
+
+class DropCheckConstraint(CheckConstraintMixin, AbstractChange):
+    def wrap(self) -> Change:
+        return Change(drop_check_constraint=self)
+
+    def _phases(self) -> List[Phase]:
+        return [
+            TransactionalDDLPhase(self.drop_sql, self.add_sql),
+            TransactionalDDLPhase(None, self.validate_sql),
+        ]
+
+

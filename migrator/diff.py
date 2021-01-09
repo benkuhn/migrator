@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Union, Tuple, TypeVar
+from typing import Any, Dict, Iterator, List, Union, Tuple, TypeVar, Type
 from urllib.parse import urlparse
 
 import pyrseas.database
 import pyrseas.dbobject as dbo
 import pyrseas.dbobject.table
 import pyrseas.dbobject.index
+import pyrseas.dbobject.constraint
 import yaml
 
 from . import changes
@@ -101,6 +102,16 @@ def flatten_holders(holders: List[ChangeHolder]) -> List[changes.Change]:
     return ret
 
 
+def make_change_check(t: Type[Any], obj: dbo.constraint.CheckConstraint) -> changes.Change:
+    table = None
+    domain = obj.schema + '.' + obj.table
+    if obj._table.objtype == 'TABLE':
+        domain, table = table, domain
+    return t(
+        table=table, domain=domain, name=obj.name, expr=obj.expression
+    )
+
+
 class MigratorDatabase(pyrseas.database.Database):
     """Subclass of pyrseas Database that knows how to emit changesets instead of
     SQL statements."""
@@ -145,6 +156,7 @@ class MigratorDatabase(pyrseas.database.Database):
         # order over all the db objects
 
         pre_deploy_changes = []
+        post_deploy_changes = []
         def emit(changes, obj, db, change) -> None:
             changes.append(ChangeHolder(
                 obj=obj, deps=obj.get_deps(db), change=change
@@ -180,7 +192,13 @@ class MigratorDatabase(pyrseas.database.Database):
             else:
                 if isinstance(new, dbo.index.Index):
                     assert not new.cluster
-                    emit(pre_deploy_changes, new, self.ndb, make_create_index(new))
+                    emit(pre_deploy_changes, new, self.ndb, make_change_index(
+                        changes.CreateIndex, new
+                    ))
+                elif isinstance(new, dbo.constraint.CheckConstraint):
+                    emit(pre_deploy_changes, new, self.ndb, make_change_check(
+                        changes.AddCheckConstraint, new
+                    ))
                 else:
                     emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
                         up=ddlify(new.create_sql(self.dbconn.version)),
@@ -209,36 +227,38 @@ class MigratorDatabase(pyrseas.database.Database):
         old_objs = self.dep_sorted(old_objs, self.db)
         old_objs.reverse()
 
-        post_deploy_changes = []
         # Drop the objects that don't appear in the new db
         for old in old_objs:
             d = self.ndb.dbobjdict_from_catalog(old.catalog)
+            new = d.get(old.key())
             if isinstance(old, Table):
-                new = d.get(old.key())
                 if new is not None:
+                    emit(post_deploy_changes, old, self.db, changes.DDLStep(
+                        up=ddlify(old.alter_drop_columns(new)),
+                        down=ddlify(alter_table_add(new, old))
+                    ))
+            if new is None:
+                if isinstance(old, dbo.constraint.CheckConstraint):
+                    # FIXME: it would make more sense to make this pre-deploy if we
+                    #  don't depend on objects that only get dropped post-deploy :\
+                    emit(post_deploy_changes, old, self.db, make_change_check(
+                        changes.DropCheckConstraint, old
+                    ))
+                elif isinstance(old, dbo.constraint.Index):
+                    emit(post_deploy_changes, old, self.db, make_change_index(
+                        changes.DropIndex, old
+                    ))
+                elif not getattr(old, '_nodrop', False) and old.key() != 'pg_catalog':
                     post_deploy_changes.append(
                         ChangeHolder(
                             obj=old,
                             deps=old.get_deps(self.db),
                             change=changes.DDLStep(
-                                # FIXME: this is wrong
-                                up=ddlify(old.alter_drop_columns(new)),
-                                down=ddlify(alter_table_add(new, old))
+                                up=ddlify(old.drop()),
+                                down=ddlify(old.create_sql(self.dbconn.version)),
                             )
                         )
                     )
-            if (not getattr(old, '_nodrop', False)
-                    and old.key() not in d and old.key() != 'pg_catalog'):
-                post_deploy_changes.append(
-                    ChangeHolder(
-                        obj=old,
-                        deps=old.get_deps(self.db),
-                        change=changes.DDLStep(
-                            up=ddlify(old.drop()),
-                            down=ddlify(old.create_sql(self.dbconn.version)),
-                        )
-                    )
-                )
 
         if 'datacopy' in self.config:
             opts.data_dir = self.config['files']['data_path']
@@ -333,10 +353,10 @@ def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[
     return stmts
 
 
-def make_create_index(index: dbo.index.Index) -> changes.CreateIndex:
+def make_change_index(t: Type[Any], index: dbo.index.Index) -> changes.CreateIndex:
     assert not index.cluster, "clustering not supported"
     assert index.tablespace is None, "tablespace not supported"
-    return changes.CreateIndex(
+    return t(
         unique=index.unique,
         name=index.name,
         table=index.qualname(index.schema, index.table),
