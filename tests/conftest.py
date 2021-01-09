@@ -1,12 +1,12 @@
 import contextlib
 import os
-import random
-import re
+from collections import Iterator
 
 import psycopg2
 import pytest
 
 from migrator.commands import Context
+from migrator.db import temp_db_url
 from tests.fakes import FakeUserInterface
 
 
@@ -18,14 +18,9 @@ def control_conn():
 
 
 @pytest.fixture
-def db_url(control_conn) -> str:
-    cur = control_conn.cursor()
-    db_name = ''.join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
-    cur.execute("CREATE DATABASE " + db_name)
-    control_conn.commit()
-    yield re.sub("/[^/]+$", "/" + db_name, os.environ["DATABASE_URL"])
-    cur.execute("DROP DATABASE " + db_name)
-    control_conn.commit()
+def db_url(control_conn) -> Iterator[str]:
+    with temp_db_url(control_conn) as url:
+        yield url
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@ Min viable "get something working"
 
 - [x] test data + parsing into models
 - [x] `$cmd up` works on empty db
-- [ ] `$cmd revision` generates DDL
+- [x] `$cmd revision` generates DDL
 
 Riskiest parts:
 

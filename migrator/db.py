@@ -1,11 +1,16 @@
 """Abstraction layer over a database
 """
+import contextlib
 import dataclasses
+import os
+import random
+import re
 
 from .constants import NAME
 from contextlib import contextmanager
 import hashlib
-from typing import Any, List, Iterator, Tuple, Callable, Optional, TypeVar, Iterable
+from typing import Any, List, Iterator, Tuple, Callable, Optional, TypeVar, Iterable, \
+    Dict
 
 T = TypeVar("T")
 
@@ -57,30 +62,32 @@ def map_audit(row: Iterable[Any]) -> models.MigrationAudit:
 class Database:
     def __init__(self, database_url: str) -> None:
         self.conn = psycopg2.connect(database_url)
+        self.conn.set_session(autocommit=True)
         self.cur = self.conn.cursor()
         self.in_tx = False
 
-    def _fetch(self, query: str, **kwargs: Any) -> List[Any]:
-        self.cur.execute(query, kwargs)
+    def _fetch_inner(self, query: str, args: Any) -> List[Any]:
+        self.cur.execute(query, args)
         result = self.cur.fetchall()
-        self.conn.commit()
         return result
 
-    def _exec(self, query: str, *args: Any, mapper: Callable[[Iterable[Any]], T] = None, **kwargs: Any) -> List[T]:
-        pass
-    
+    def _fetch(self, query: str, **kwargs: Any) -> List[Any]:
+        assert not self.in_tx
+        return self._fetch_inner(query, kwargs)
+
+    def _fetch_tx(self, query: str, args: List[Any], **kwargs: Any) -> List[Any]:
+        assert self.in_tx
+        return self._fetch_inner(query, args or kwargs)
+
     @contextmanager
     def tx(self) -> Iterator[None]:
         assert not self.in_tx
-        try:
-            self.in_tx = True
-            yield
-            self.conn.commit()
-        except:
-            self.conn.rollback()
-            raise
-        finally:
-            self.in_tx = False
+        with self.conn:
+            try:
+                self.in_tx = True
+                yield
+            finally:
+                self.in_tx = False
     
     def is_set_up(self) -> bool:
         return self._fetch("""
@@ -107,22 +114,38 @@ class Database:
         return map_audit(result[0])
 
     def audit_part_start(self, part: models.MigrationPart) -> models.MigrationAudit:
-        self.cur.execute(f"""
+        result = self._fetch_tx(f"""
         INSERT INTO {NAME}.migration_audit
             (started_at, {MIGRATION_PART_FIELDS})
         VALUES
             (now(), %s, %s, %s, %s, %s, %s)
         RETURNING {AUDIT_FIELDS}""", dataclasses.astuple(part))
-        return map_audit(self.cur.fetchall()[0])
+        return map_audit(result[0])
 
     def audit_part_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
-        result = self.cur.execute(f"""
+        result = self._fetch_tx(f"""
         UPDATE {NAME}.migration_audit
             SET finished_at = now()
         WHERE id = %s
         RETURNING {AUDIT_FIELDS}""", (audit.id, ))
-        return map_audit(self.cur.fetchall()[0])
-
+        return map_audit(result[0])
 
     def close(self) -> None:
         self.conn.close()
+
+    @contextmanager
+    def temp_db_url(self) -> Iterator[str]:
+        with temp_db_url(self.conn) as url:
+            yield url
+
+
+@contextlib.contextmanager
+def temp_db_url(control_conn: Any) -> Iterator[str]:
+    cur = control_conn.cursor()
+    db_name = ''.join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
+    cur.execute("CREATE DATABASE " + db_name)
+    try:
+        yield re.sub("/[^/]+$", "/" + db_name, os.environ["DATABASE_URL"])
+    finally:
+        cur.execute("DROP DATABASE " + db_name)
+        cur.close()
