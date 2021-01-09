@@ -65,8 +65,8 @@ class Repo:
                 continue
             if index and index.revision == num:
                 assert revision.first_index == index.first_change  # FIXME error
-            for next_index, step, subphase in revision.next_phases(index):
-                yield next_index, revision, step, subphase
+            for next_index, change, phase in revision.next_phases(index):
+                yield next_index, revision, change, phase
 
 
 class RepoConfig(BaseModel):
@@ -141,17 +141,17 @@ class Revision:
     def next_phases(self, index: Optional[PhaseIndex]) -> Iterator[IndexChangePhase]:
         if index and index.revision > self.number:
             return
-        for next_index, step, subphase in self.phases():
+        for next_index, change, phase in self.phases():
             if not index or next_index > index:
-                yield next_index, step, subphase
+                yield next_index, change, phase
 
 
     def phases(self) -> Iterator[IndexChangePhase]:
         index = self.first_index
-        for i_phase, sw in enumerate(self.migration.pre_deploy):
-            for i_subphase, subphase in enumerate(sw.inner.phases):
-                new_index = dataclasses.replace(index, change=i_phase, phase=i_subphase)
-                yield new_index, sw, subphase
+        for i_change, change in enumerate(self.migration.pre_deploy):
+            for i_phase, phase in enumerate(change.inner.phases):
+                new_index = dataclasses.replace(index, change=i_change, phase=i_phase)
+                yield new_index, change, phase
 
 
     @property
