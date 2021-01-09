@@ -102,13 +102,24 @@ def flatten_holders(holders: List[ChangeHolder]) -> List[changes.Change]:
     return ret
 
 
-def make_change_check(t: Type[Any], obj: dbo.constraint.CheckConstraint) -> changes.Change:
+SUPPORTED_CONSTRAINTS = (dbo.constraint.CheckConstraint, dbo.constraint.ForeignKey)
+
+def make_change_check(t: Type[Any], obj: dbo.constraint.Constraint) -> changes.Change:
     table = None
     domain = obj.schema + '.' + obj.table
     if obj._table.objtype == 'TABLE':
         domain, table = table, domain
+    if isinstance(obj, dbo.constraint.CheckConstraint):
+        kwargs = {"check": obj.expression}
+    elif isinstance(obj, dbo.constraint.ForeignKey):
+        kwargs = {
+            "foreign_key": obj.key_columns(),
+            "references": obj.add().split("REFERENCES ")[1]
+        }
+    else:
+        assert False
     return t(
-        table=table, domain=domain, name=obj.name, expr=obj.expression
+        table=table, domain=domain, name=obj.name, **kwargs
     )
 
 
@@ -195,9 +206,9 @@ class MigratorDatabase(pyrseas.database.Database):
                     emit(pre_deploy_changes, new, self.ndb, make_change_index(
                         changes.CreateIndex, new
                     ))
-                elif isinstance(new, dbo.constraint.CheckConstraint):
+                elif isinstance(new, SUPPORTED_CONSTRAINTS):
                     emit(pre_deploy_changes, new, self.ndb, make_change_check(
-                        changes.AddCheckConstraint, new
+                        changes.AddConstraint, new
                     ))
                 else:
                     emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
@@ -238,11 +249,11 @@ class MigratorDatabase(pyrseas.database.Database):
                         down=ddlify(alter_table_add(new, old))
                     ))
             if new is None:
-                if isinstance(old, dbo.constraint.CheckConstraint):
+                if isinstance(old, SUPPORTED_CONSTRAINTS):
                     # FIXME: it would make more sense to make this pre-deploy if we
                     #  don't depend on objects that only get dropped post-deploy :\
                     emit(post_deploy_changes, old, self.db, make_change_check(
-                        changes.DropCheckConstraint, old
+                        changes.DropConstraint, old
                     ))
                 elif isinstance(old, dbo.constraint.Index):
                     emit(post_deploy_changes, old, self.db, make_change_index(

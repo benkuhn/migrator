@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import pydantic
 from pydantic import BaseModel, PrivateAttr
@@ -14,8 +14,8 @@ class Change(pydantic.BaseModel):
     run_ddl: Optional[DDLStep] = None
     create_index: Optional[CreateIndex] = None
     drop_index: Optional[DropIndex] = None
-    add_check_constraint: Optional[AddCheckConstraint] = None
-    drop_check_constraint: Optional[DropCheckConstraint] = None
+    add_constraint: Optional[AddConstraint] = None
+    drop_constraint: Optional[DropConstraint] = None
 
     @property
     def inner(self) -> AbstractChange:
@@ -23,8 +23,8 @@ class Change(pydantic.BaseModel):
                 self.run_ddl
                 or self.create_index
                 or self.drop_index
-                or self.add_check_constraint
-                or self.drop_check_constraint
+                or self.add_constraint
+                or self.drop_constraint
         )
         assert result is not None
         return result
@@ -151,11 +151,29 @@ class DropIndex(IndexMixin, AbstractChange):
         return [IdempotentDDLPhase(self.drop_sql, self.create_sql)]
 
 
-class CheckConstraintMixin(BaseModel):
+class ConstraintMixin(BaseModel):
     table: Optional[str] = None
     domain: Optional[str] = None
     name: str
-    expr: str
+    check: Optional[str] = None
+    foreign_key: Optional[str] = None
+    references: Optional[str] = None
+
+    """
+    @pydantic.root_validator
+    def validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        # TODO: Work around pydantic bug: we get re-validated when passed to a containing
+        # class (e.g. in .wrap())
+        if not isinstance(values, dict):
+            return values
+        if values.get("check"):
+            assert values.get("foreign_key") is None
+            assert values.get("references") is None
+        else:
+            assert values.get("foreign_key") is not None
+            assert values.get("references") is not None
+        return values
+    """
 
     @property
     def alter(self):
@@ -165,9 +183,17 @@ class CheckConstraintMixin(BaseModel):
 
     @property
     def add_sql(self) -> str:
+        assert self.check or self.foreign_key
         return f"""
         {self.alter} ADD CONSTRAINT {q(self.name)}
-        CHECK {self.expr} NOT VALID"""
+        {self.descr} NOT VALID"""
+
+    @property
+    def descr(self) -> str:
+        if self.check:
+            return f"CHECK {self.check}"
+        assert self.references
+        return f"FOREIGN KEY ({self.foreign_key}) REFERENCES {self.references}"
 
     @property
     def validate_sql(self) -> str:
@@ -178,9 +204,9 @@ class CheckConstraintMixin(BaseModel):
         return f"{self.alter} DROP CONSTRAINT {q(self.name)}"
 
 
-class AddCheckConstraint(CheckConstraintMixin, AbstractChange):
+class AddConstraint(ConstraintMixin, AbstractChange):
     def wrap(self) -> Change:
-        return Change(add_check_constraint=self)
+        return Change(add_constraint=self)
 
     def _phases(self) -> List[Phase]:
         return [
@@ -189,14 +215,14 @@ class AddCheckConstraint(CheckConstraintMixin, AbstractChange):
         ]
 
 
-class DropCheckConstraint(CheckConstraintMixin, AbstractChange):
+class DropConstraint(ConstraintMixin, AbstractChange):
     def wrap(self) -> Change:
-        return Change(drop_check_constraint=self)
+        return Change(drop_constraint=self)
 
     def _phases(self) -> List[Phase]:
         return [
-            TransactionalDDLPhase(self.drop_sql, self.add_sql),
             TransactionalDDLPhase(None, self.validate_sql),
+            TransactionalDDLPhase(self.drop_sql, self.add_sql),
         ]
 
 

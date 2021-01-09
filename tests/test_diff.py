@@ -62,6 +62,8 @@ def fixtures() -> Iterator[DiffFixture]:
 
 @pytest.mark.parametrize("case", list(fixtures()), ids=lambda x: x.test)
 def test_codegen(control_conn, case):
+    if case.test == "FOREIGN KEY constraint reversed":
+        pytest.xfail("Pyrseas bug with fkey columns")
     case.test_codegen(control_conn)
 
 
