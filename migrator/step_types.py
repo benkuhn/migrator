@@ -39,17 +39,9 @@ class StepWrapper(pydantic.BaseModel):
 
 
 class AbstractStep(abc.ABC):
-    _parent: StepWrapper
-    _subphases_saved: List[Subphase] = []
-
     @property
     def subphases(self) -> List[Subphase]:
-        if self._subphases_saved == []:
-            self._subphases_saved = self._subphases()
-            for i, s in enumerate(self.subphases):
-                s.parent = self
-                s.part = dataclasses.replace(self._parent._first_subphase, subphase=i)
-        return self._subphases_saved
+        return self._subphases()
 
     @abc.abstractmethod
     def _subphases(self) -> List[Subphase]:
@@ -60,23 +52,21 @@ class AbstractStep(abc.ABC):
         pass
 
     def get(self, part: models.MigrationPart) -> Subphase:
-        assert part.first_subphase == self._parent._first_subphase
+        # FIXME: deprecate this method
+        # assert part.first_subphase == self._parent._first_subphase
         return self.subphases[part.subphase]
 
 
 class Subphase(abc.ABC):
-    parent: AbstractStep
-    part: models.MigrationPart
-
     @abc.abstractmethod
-    def run(self, db: db.Database) -> None:
+    def run(self, db: db.Database, part: models.MigrationPart) -> None:
         pass
 
 
 class TransactionalSubphase(Subphase):
-    def run(self, db: db.Database) -> None:
+    def run(self, db: db.Database, part: models.MigrationPart) -> None:
         with db.tx():
-            audit = db.audit_part_start(self.part)
+            audit = db.audit_part_start(part)
             self.run_inner(db)
             db.audit_part_end(audit)
 
@@ -86,10 +76,10 @@ class TransactionalSubphase(Subphase):
 
 
 class IdempotentSubphase(Subphase):
-    def run(self, db: db.Database) -> None:
+    def run(self, db: db.Database, part: models.MigrationPart) -> None:
         with db.tx():
             # FIXME: what happens if we already started?
-            audit = db.audit_part_start(self.part)
+            audit = db.audit_part_start(part)
         self.run_inner(db)
         with db.tx():
             db.audit_part_end(audit)

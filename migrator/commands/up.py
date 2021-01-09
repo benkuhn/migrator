@@ -13,4 +13,4 @@ def up(ctx: Context) -> None:
     last = db.get_last_finished()
     for part in repo.next_parts(None if last is None else last.part):
         migration, step, subphase = repo.get(part)
-        subphase.run(db)
+        subphase.run(db, part)
