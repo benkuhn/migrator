@@ -51,10 +51,8 @@ def revision(ctx: Context, message: str) -> None:
 
     migration = {
         "message": message,
-        "pre_deploy": [
-            step.dict()
-            for step in pre_deploy
-        ]
+        "pre_deploy": [step.dict() for step in pre_deploy],
+        "post_deploy": [step.dict() for step in post_deploy]
     }
 
     with ctx.ui.open(migration_path, "w") as f:
