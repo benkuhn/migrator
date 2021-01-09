@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: docker.io/postgres:9.6.18
+    environment:
+      POSTGRES_USER: migrator
+      POSTGRES_PASSWORD: rotargim
+    volumes:
+      - ./volumes/pgdata:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - fsync=off
+    ports:
+      # forward port 5543 to avoid conflicting with normal postgres
+      - 5543:5432
