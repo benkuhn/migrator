@@ -57,10 +57,15 @@ TwoLists = Tuple[List[T], List[T]]
 
 
 def diff(from_url: str, to_url: str) -> TwoLists[changes.Change]:
-    with load(from_url) as from_db, load(to_url) as to_db:
-        in_map = to_db.to_map()
+    in_map = to_map(to_url)
+    with load(from_url) as from_db:
         pre_deploy, post_deploy = from_db.diff_map_changes(in_map)
         return flatten_holders(pre_deploy), flatten_holders(post_deploy)
+
+
+def to_map(url):
+    with load(url) as db:
+        return db.to_map()
 
 
 @dataclass

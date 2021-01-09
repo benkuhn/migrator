@@ -62,6 +62,7 @@ def map_audit(row: Iterable[Any]) -> models.MigrationAudit:
 
 class Database:
     def __init__(self, database_url: str) -> None:
+        self.url = database_url
         self.conn = psycopg2.connect(database_url)
         self.conn.set_session(autocommit=True)
         self.cur = self.conn.cursor()

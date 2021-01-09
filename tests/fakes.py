@@ -53,10 +53,21 @@ def schema_db_url(conn: Any, schema_sql: str) -> str:
         cur.execute("SELECT * FROM pg_database WHERE datname = %s", (db_name, ))
         results = cur.fetchall()
         if len(results):
-            return url
+            regen_all = False
+            # uncomment this line to regen all schemas
+            # regen_all = True
+            if regen_all:
+                cur.execute(f"DROP DATABASE {db_name}")
+            else:
+                return url
         cur.execute(f"CREATE DATABASE {db_name}")
         with psycopg2.connect(url) as conn2, conn2.cursor() as cur2:
             try:
+                # Recreate the public schema so that when we diff this database
+                # against the main test database, which has had the public schema
+                # dropped and recreated, the "description" and privileges of that
+                # schema don't show up in the diff.
+                cur2.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
                 cur2.execute(schema_sql)
                 return url
             except:

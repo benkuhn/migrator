@@ -1,6 +1,5 @@
 from typing import Optional, Union, Literal, Iterator
 
-import psycopg2
 import pytest
 import yaml
 import pydantic
@@ -36,13 +35,17 @@ class DiffFixture(pydantic.BaseModel):
         )
         assert migration == self.migration
 
-    def test_exec(self, db: db.Database) -> None:
-        db.create_schema()
-        with db.conn.cursor() as cur:
+    def test_exec(self, mdb: db.Database) -> None:
+        mdb.create_schema()
+        with mdb.conn.cursor() as cur:
             cur.execute(self.before)
         i_first = models.PhaseIndex(0, b'', b'', True, 0, 0)
         for index, change, phase in self.migration.phases(i_first):
-            phase.run(db, index)
+            phase.run(mdb, index)
+        mdb.cur.execute(f"DROP SCHEMA {db.SCHEMA_NAME} CASCADE")
+        actual_map = diff.to_map(mdb.url)
+        expected_map = diff.to_map(schema_db_url(mdb.conn, self.after))
+        assert actual_map == expected_map
 
     def __str__(self) -> str:
         return self.test
