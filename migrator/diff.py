@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import pyrseas.database
 import pyrseas.dbobject as dbo
 import pyrseas.dbobject.table
+import yaml
 
 from . import step_types
 
@@ -67,7 +68,18 @@ class StepHolder:
 
 
 def ddlify(stmts):
-    return "\n".join(stmt + ";" for stmt in pyrseas.database.flatten(stmts))
+    return YamlMultiline(
+        "\n".join(stmt + ";" for stmt in pyrseas.database.flatten(stmts))
+    )
+
+
+class YamlMultiline(str):
+    @staticmethod
+    def bar_presenter(dumper, data):
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+
+
+yaml.add_representer(YamlMultiline, YamlMultiline.bar_presenter, Dumper=yaml.SafeDumper)
 
 
 def flatten_steps(steps: List[StepHolder]) -> List[step_types.StepWrapper]:

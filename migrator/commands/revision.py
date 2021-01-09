@@ -56,7 +56,7 @@ def revision(ctx: Context, message: str) -> None:
     }
 
     with ctx.ui.open(migration_path, "w") as f:
-        f.write(yaml.safe_dump(migration))
+        f.write(yaml.safe_dump(migration, sort_keys=False))
 
 @contextmanager
 def temp_db_with_schema(db: db.Database, schema: str) -> str:

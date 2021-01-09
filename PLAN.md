@@ -8,6 +8,7 @@ Riskiest parts:
 
 - [x] pair statement and reverse
 - [x] fix ALTER TABLE output
+- [x] YAML formatting
 - [ ] `$cmd revision` codegen works for:
   - [ ] indexes
   - [ ] constraints
