@@ -56,7 +56,7 @@ AUDIT_FIELDS = f"id, started_at, finished_at, revert_started_at, revert_finished
 
 def map_audit(row: Iterable[Any]) -> models.MigrationAudit:
     fields = list(row)
-    part = models.MigrationPart(*fields[-6:])
+    part = models.PhaseIndex(*fields[-6:])
     return models.MigrationAudit(*fields[:-6], part) # type: ignore
 
 class Database:
@@ -113,7 +113,7 @@ class Database:
             return None
         return map_audit(result[0])
 
-    def audit_part_start(self, part: models.MigrationPart) -> models.MigrationAudit:
+    def audit_part_start(self, part: models.PhaseIndex) -> models.MigrationAudit:
         result = self._fetch_tx(f"""
         INSERT INTO {NAME}.migration_audit
             (started_at, {MIGRATION_PART_FIELDS})

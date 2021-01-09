@@ -38,12 +38,12 @@ class AbstractChange(abc.ABC):
 
 class Phase(abc.ABC):
     @abc.abstractmethod
-    def run(self, db: db.Database, part: models.MigrationPart) -> None:
+    def run(self, db: db.Database, part: models.PhaseIndex) -> None:
         pass
 
 
 class TransactionalPhase(Phase):
-    def run(self, db: db.Database, part: models.MigrationPart) -> None:
+    def run(self, db: db.Database, part: models.PhaseIndex) -> None:
         with db.tx():
             audit = db.audit_part_start(part)
             self.run_inner(db)
@@ -55,7 +55,7 @@ class TransactionalPhase(Phase):
 
 
 class IdempotentPhase(Phase):
-    def run(self, db: db.Database, part: models.MigrationPart) -> None:
+    def run(self, db: db.Database, part: models.PhaseIndex) -> None:
         with db.tx():
             # FIXME: what happens if we already started?
             audit = db.audit_part_start(part)

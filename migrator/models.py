@@ -55,7 +55,7 @@ class Repo:
     def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
         yield from sorted(self.revisions.items())
 
-    def next_parts(self, part: Optional[MigrationPart]) -> Iterator[MigrationPart]:
+    def next_parts(self, part: Optional[PhaseIndex]) -> Iterator[PhaseIndex]:
         """Yields each remaining migration-part that should be run after the given part.
 
         If the part refers to a migration not in the repo, raises MigrationNotFound.
@@ -138,7 +138,7 @@ class Revision:
         number = get_revision_number(filename)
         return Revision(number, filename)
 
-    def next_parts(self, part: Optional[MigrationPart]) -> Iterator[PartStepSubphase]:
+    def next_parts(self, part: Optional[PhaseIndex]) -> Iterator[PartStepSubphase]:
         if part and part.revision > self.number:
             return
         for next_part, step, subphase in self.parts():
@@ -150,37 +150,37 @@ class Revision:
         part = self.first_step
         for i_phase, sw in enumerate(self.migration.pre_deploy):
             for i_subphase, subphase in enumerate(sw.inner.phases):
-                newpart = dataclasses.replace(part, phase=i_phase, subphase=i_subphase)
+                newpart = dataclasses.replace(part, change=i_phase, subphase=i_subphase)
                 yield newpart, sw, subphase
 
 
     @property
-    def first_step(self) -> MigrationPart:
-        return MigrationPart(
+    def first_step(self) -> PhaseIndex:
+        return PhaseIndex(
             revision=self.number,
             migration_hash=self.migration_hash,
             schema_hash=self.schema_hash,
             pre_deploy=True,
-            phase=0,
+            change=0,
             subphase=0
         )
 
 
 @dataclass
-class MigrationPart:
+class PhaseIndex:
     revision: int
     migration_hash: bytes
     schema_hash: bytes
     pre_deploy: bool
-    phase: int
+    change: int
     subphase: int
 
     @property
-    def first_step(self) -> MigrationPart:
-        return dataclasses.replace(self, pre_deploy=True, phase=0, subphase=0)
+    def first_step(self) -> PhaseIndex:
+        return dataclasses.replace(self, pre_deploy=True, change=0, subphase=0)
 
     @property
-    def first_subphase(self) -> MigrationPart:
+    def first_subphase(self) -> PhaseIndex:
         return dataclasses.replace(self, subphase=0)
 
     @property
@@ -188,16 +188,16 @@ class MigrationPart:
         return (
             self.revision,
             0 if self.pre_deploy else 1,
-            self.phase,
+            self.change,
             self.subphase
         )
 
-    def __gt__(self, other: MigrationPart) -> bool:
+    def __gt__(self, other: PhaseIndex) -> bool:
         return self.sortkey > other.sortkey
 
-PartStepSubphase = Tuple[MigrationPart, "changes.StepWrapper", "changes.Subphase"]
+PartStepSubphase = Tuple[PhaseIndex, "changes.StepWrapper", "changes.Subphase"]
 PartRevisionStepSubphase = Tuple[
-    MigrationPart, Revision, "changes.StepWrapper", "changes.Subphase"
+    PhaseIndex, Revision, "changes.StepWrapper", "changes.Subphase"
 ]
 
 
@@ -209,7 +209,7 @@ class MigrationAudit:
     finished_at: Optional[datetime]
     revert_started_at: Optional[datetime]
     revert_finished_at: Optional[datetime]
-    part: MigrationPart
+    part: PhaseIndex
 
 @pydantic.dataclasses.dataclass
 class Migration:
