@@ -55,18 +55,18 @@ class Repo:
     def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
         yield from sorted(self.revisions.items())
 
-    def next_parts(self, part: Optional[PhaseIndex]) -> Iterator[PhaseIndex]:
-        """Yields each remaining migration-part that should be run after the given part.
+    def next_phases(self, index: Optional[PhaseIndex]) -> Iterator[IndexRevisionChangePhase]:
+        """Yields each remaining phase that should be run after the given index.
 
-        If the part refers to a migration not in the repo, raises MigrationNotFound.
+        If the index refers to a migration not in the repo, raises MigrationNotFound.
         """
         for num, revision in self.ordered_revisions:
-            if part and part.revision < num:
+            if index and index.revision < num:
                 continue
-            if part and part.revision == num:
-                assert revision.first_step == part.first_step  # FIXME error
-            for next_part, step, subphase in revision.next_parts(part):
-                yield next_part, revision, step, subphase
+            if index and index.revision == num:
+                assert revision.first_index == index.first_change  # FIXME error
+            for next_index, step, subphase in revision.next_phases(index):
+                yield next_index, revision, step, subphase
 
 
 class RepoConfig(BaseModel):
@@ -138,31 +138,31 @@ class Revision:
         number = get_revision_number(filename)
         return Revision(number, filename)
 
-    def next_parts(self, part: Optional[PhaseIndex]) -> Iterator[PartStepSubphase]:
-        if part and part.revision > self.number:
+    def next_phases(self, index: Optional[PhaseIndex]) -> Iterator[IndexChangePhase]:
+        if index and index.revision > self.number:
             return
-        for next_part, step, subphase in self.parts():
-            if not part or next_part > part:
-                yield next_part, step, subphase
+        for next_index, step, subphase in self.phases():
+            if not index or next_index > index:
+                yield next_index, step, subphase
 
 
-    def parts(self) -> Iterator[PartStepSubphase]:
-        part = self.first_step
+    def phases(self) -> Iterator[IndexChangePhase]:
+        index = self.first_index
         for i_phase, sw in enumerate(self.migration.pre_deploy):
             for i_subphase, subphase in enumerate(sw.inner.phases):
-                newpart = dataclasses.replace(part, change=i_phase, subphase=i_subphase)
-                yield newpart, sw, subphase
+                new_index = dataclasses.replace(index, change=i_phase, phase=i_subphase)
+                yield new_index, sw, subphase
 
 
     @property
-    def first_step(self) -> PhaseIndex:
+    def first_index(self) -> PhaseIndex:
         return PhaseIndex(
             revision=self.number,
             migration_hash=self.migration_hash,
             schema_hash=self.schema_hash,
             pre_deploy=True,
             change=0,
-            subphase=0
+            phase=0
         )
 
 
@@ -173,15 +173,15 @@ class PhaseIndex:
     schema_hash: bytes
     pre_deploy: bool
     change: int
-    subphase: int
+    phase: int
 
     @property
-    def first_step(self) -> PhaseIndex:
-        return dataclasses.replace(self, pre_deploy=True, change=0, subphase=0)
+    def first_change(self) -> PhaseIndex:
+        return dataclasses.replace(self, pre_deploy=True, change=0, phase=0)
 
     @property
-    def first_subphase(self) -> PhaseIndex:
-        return dataclasses.replace(self, subphase=0)
+    def first_phase(self) -> PhaseIndex:
+        return dataclasses.replace(self, phase=0)
 
     @property
     def sortkey(self) -> Tuple[int, int, int, int]:
@@ -189,15 +189,15 @@ class PhaseIndex:
             self.revision,
             0 if self.pre_deploy else 1,
             self.change,
-            self.subphase
+            self.phase
         )
 
     def __gt__(self, other: PhaseIndex) -> bool:
         return self.sortkey > other.sortkey
 
-PartStepSubphase = Tuple[PhaseIndex, "changes.StepWrapper", "changes.Subphase"]
-PartRevisionStepSubphase = Tuple[
-    PhaseIndex, Revision, "changes.StepWrapper", "changes.Subphase"
+IndexChangePhase = Tuple[PhaseIndex, "changes.Change", "changes.Phase"]
+IndexRevisionChangePhase = Tuple[
+    PhaseIndex, Revision, "changes.Change", "changes.Phase"
 ]
 
 
@@ -209,7 +209,8 @@ class MigrationAudit:
     finished_at: Optional[datetime]
     revert_started_at: Optional[datetime]
     revert_finished_at: Optional[datetime]
-    part: PhaseIndex
+    index: PhaseIndex
+
 
 @pydantic.dataclasses.dataclass
 class Migration:

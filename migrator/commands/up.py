@@ -11,6 +11,6 @@ def up(ctx: Context) -> None:
         db.create_schema()
 
     last = db.get_last_finished()
-    for tuple in repo.next_parts(None if last is None else last.part):
+    for tuple in repo.next_phases(None if last is None else last.index):
         part, migration, step, subphase = tuple
         subphase.run(db, part)
