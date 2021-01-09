@@ -6,7 +6,8 @@ Min viable "get something working"
 
 Riskiest parts:
 
-- [ ] pair statement and reverse
+- [x] pair statement and reverse
+- [ ] fix ALTER TABLE output
 - [ ] `$cmd revision` codegen works for:
   - [ ] indexes
   - [ ] constraints

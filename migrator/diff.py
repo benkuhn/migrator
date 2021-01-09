@@ -13,13 +13,13 @@ Database = Any
 
 class DummyOptions:
     multiple_files = False
-    no_owner = True
-    no_privs = True
     schemas = []
     onetrans = False
     update = False
     revert = False
-
+    # important so that dbtoyaml records privs!
+    no_owner = False
+    no_privs = False
 
 def db_url_to_config(db_url: str) -> Dict[str, Any]:
     parsed = urlparse(db_url)
@@ -198,7 +198,8 @@ class MigratorDatabase(pyrseas.database.Database):
                             )
                         )
                     )
-            if not getattr(old, '_nodrop', False) and old.key() not in d:
+            if (not getattr(old, '_nodrop', False)
+                    and old.key() not in d and old.key() != 'pg_catalog'):
                 post_deploy_steps.append(
                     StepHolder(
                         obj=old,

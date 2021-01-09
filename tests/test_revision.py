@@ -1,17 +1,14 @@
 from migrator.commands import Context, text, revision
 
 EXPECTED_MIGRATION = """message: a new revision
+post_deploy:
+- run_ddl:
+    down: ALTER TABLE public.users DROP COLUMN name;
+    up: ''
 pre_deploy:
 - run_ddl:
-    down: 'GRANT ALL ON SCHEMA public TO chimelife;
-
-      GRANT ALL ON SCHEMA public TO PUBLIC;'
-    up: 'REVOKE ALL ON SCHEMA public FROM chimelife;
-
-      REVOKE ALL ON SCHEMA public FROM PUBLIC;'
-- run_ddl:
     down: ''
-    up: "ALTER TABLE public.users\n    ADD COLUMN name text NOT NULL;"
+    up: "ALTER TABLE public.users\\n    ADD COLUMN name text NOT NULL;"
 """
 
 def test_revision(ctx: Context) -> None:
