@@ -11,7 +11,6 @@ from .. import models, diff, db
 
 
 MIGRATION_TEMPLATE = """
-revision: {num}
 message: {message}
 pre_deploy:
 - run_ddl:

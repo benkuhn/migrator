@@ -1,4 +1,3 @@
-revision: 1
 message: Create table
 pre_deploy:
 - run_ddl:

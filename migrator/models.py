@@ -164,7 +164,6 @@ class MigrationAudit:
 
 @pydantic.dataclasses.dataclass
 class Migration:
-    revision: int
     message: str
     parent: Revision
     pre_deploy: List[step_types.StepWrapper] = dataclasses.field(default_factory=list)
@@ -173,7 +172,7 @@ class Migration:
     @property
     def first_step(self) -> MigrationPart:
         return MigrationPart(
-            revision=self.revision,
+            revision=self.parent.number,
             migration_hash=self.parent.migration_hash,
             schema_hash=self.parent.schema_hash,
             pre_deploy=True,
@@ -195,7 +194,7 @@ class Migration:
         for phase, sw in enumerate(ws):
             sw._migration = self
             sw._first_subphase = MigrationPart(
-                revision=self.revision,
+                revision=self.parent.number,
                 migration_hash=self.parent.migration_hash,
                 schema_hash=self.parent.schema_hash,
                 pre_deploy=pre_deploy,

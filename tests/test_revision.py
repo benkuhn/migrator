@@ -1,7 +1,6 @@
 from migrator.commands import Context, text, revision
 
 EXPECTED_MIGRATION = """
-revision: 3
 message: a new revision
 pre_deploy:
 - run_ddl:
