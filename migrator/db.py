@@ -135,6 +135,7 @@ class Database:
         WHERE revision = %(revision)s
         AND migration_hash = %(migration_hash)s
         AND schema_hash = %(schema_hash)s
+        AND pre_deploy = %(pre_deploy)s
         AND phase = %(phase)s
         AND change = %(change)s
         ORDER BY id DESC LIMIT 1
@@ -150,6 +151,9 @@ class Database:
         RETURNING {AUDIT_FIELDS}""",
             (audit.id, )
         )
+        if not result:
+            x = 1
+            pass
         return map_audit(result[0])
 
     def audit_phase_revert_end(self, audit: models.MigrationAudit):

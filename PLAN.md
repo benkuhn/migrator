@@ -17,7 +17,7 @@ Riskiest parts:
   - [x] indexes
   - [x] constraints
 - [x] impl renames
-- [ ] downgrading
+- [x] downgrading
 - [ ] impl `update_rows`
 
 Other orthogonal stuff
