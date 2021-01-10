@@ -18,11 +18,36 @@ Riskiest parts:
   - [x] constraints
 - [x] impl renames
 - [x] downgrading
-- [ ] impl `update_rows`
 
-Other orthogonal stuff
+Dev setup
 
-- [ ] init script
-- [ ] step idempotency
-- [ ] safety checks
+- [ ] mypy
+- [ ] CI
+- [ ] DB constraints
+
+Logic
+
+- [ ] async connections for progress reporting
+- [ ] init script + shim schema creation
+- [ ] downgrades + migration-in-db
+- [ ] step idempotency tests
+- [ ] safety checks + transaction timeouts
 - [ ] rebase
+
+Interface
+
+- [ ] UI level safety checks
+- [ ] init sets up scaffolding
+- [ ] status command
+- [ ] test command
+- [ ] revision --amend
+- [ ] up command progress display
+
+Codegen
+
+- [ ] impl `update_rows`
+- [ ] emit correct sequence of steps for `ALTER TABLE ADD COLUMN`
+- [ ] handle `default`?
+- [ ] impl `NOT NULL` constraints
+- [ ] impl `UNIQUE` constraints
+
