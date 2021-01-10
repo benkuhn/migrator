@@ -92,6 +92,14 @@
       mobile TEXT,
       email_renamed TEXT
     );
+  test_during_deploy: |
+    insert into users (mobile, email) values ('+1', 'foo@bar.com');
+    BEGIN;
+      SELECT set_config('search_path', 'migrator_rev_0,'||current_setting('search_path'), true);
+      INSERT INTO users (mobile, email_renamed) values ('+2', 'bar@foo.com');
+      SELECT user_id, mobile, email_renamed FROM users;
+    END;
+    SELECT u_id, mobile, email FROM users;
   migration:
     message: "a migration"
     pre_deploy:

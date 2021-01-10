@@ -12,6 +12,7 @@ class DiffFixture(pydantic.BaseModel):
     test: str
     before: str
     after: str
+    test_during_deploy: str = 'select 1'
     migration: models.Migration
     reverse: Optional[models.Migration] = None
     test_codegen: bool = True
@@ -42,10 +43,11 @@ class DiffFixture(pydantic.BaseModel):
         try:
             mdb.create_schema()
             mdb.cur.execute(f"CREATE SCHEMA {schema_name}")
-            with mdb.conn.cursor() as cur:
-                cur.execute(self.before)
+            mdb.cur.execute(self.before)
             i_first = models.PhaseIndex(0, b'', b'', True, 0, 0)
             for index, change, phase in self.migration.phases(i_first):
+                if not index.pre_deploy and index.change == 0 and index.phase == 0:
+                    mdb.cur.execute(self.test_during_deploy)
                 phase.run(mdb, index)
             mdb.cur.execute(f"DROP SCHEMA {constants.SCHEMA_NAME} CASCADE")
             mdb.cur.execute(f"DROP SCHEMA {schema_name} CASCADE")
@@ -53,6 +55,7 @@ class DiffFixture(pydantic.BaseModel):
             expected_map = diff.to_map(schema_db_url(mdb.conn, self.after))
             assert actual_map == expected_map
         finally:
+            mdb.conn.rollback()
             mdb.cur.execute(f"DROP SCHEMA IF EXISTS {constants.SCHEMA_NAME} CASCADE")
             mdb.cur.execute(f"DROP SCHEMA IF EXISTS {schema_name} CASCADE")
 
