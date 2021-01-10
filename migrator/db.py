@@ -7,7 +7,7 @@ import re
 
 from .constants import SCHEMA_NAME
 from contextlib import contextmanager
-from typing import Any, List, Iterator, Optional, TypeVar, Iterable
+from typing import Any, List, Iterator, Optional, TypeVar, Iterable, Sequence
 
 T = TypeVar("T")
 
@@ -73,7 +73,7 @@ class Database:
         assert not self.in_tx
         return self._fetch_inner(query, kwargs)
 
-    def _fetch_tx(self, query: str, args: Optional[List[Any]] = None, **kwargs: Any) -> List[Any]:
+    def _fetch_tx(self, query: str, args: Sequence[Any] = (), **kwargs: Any) -> List[Any]:
         assert self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
@@ -124,8 +124,43 @@ class Database:
         result = self._fetch_tx(f"""
         UPDATE {SCHEMA_NAME}.migration_audit
             SET finished_at = now()
-        WHERE id = %s
+        WHERE id = %s AND finished_at IS NULL
         RETURNING {AUDIT_FIELDS}""", (audit.id, ))
+        return map_audit(result[0])
+
+    def get_audit(self, index: models.PhaseIndex) -> models.MigrationAudit:
+        result = self._fetch_tx(
+            f"""
+        SELECT {AUDIT_FIELDS} FROM {SCHEMA_NAME}.migration_audit
+        WHERE revision = %(revision)s
+        AND migration_hash = %(migration_hash)s
+        AND schema_hash = %(schema_hash)s
+        AND phase = %(phase)s
+        AND change = %(change)s
+        ORDER BY id DESC LIMIT 1
+        """, **dataclasses.asdict(index))
+        return map_audit(result[0])
+
+    def audit_phase_revert_start(self, audit: models.MigrationAudit):
+        result = self._fetch_tx(
+            f"""
+        UPDATE {SCHEMA_NAME}.migration_audit
+            SET revert_started_at = now()
+        WHERE id = %s AND revert_started_at IS NULL
+        RETURNING {AUDIT_FIELDS}""",
+            (audit.id, )
+        )
+        return map_audit(result[0])
+
+    def audit_phase_revert_end(self, audit: models.MigrationAudit):
+        result = self._fetch_tx(
+            f"""
+        UPDATE {SCHEMA_NAME}.migration_audit
+            SET revert_finished_at = now()
+        WHERE id = %s AND revert_finished_at IS NULL
+        RETURNING {AUDIT_FIELDS}""",
+            (audit.id, )
+        )
         return map_audit(result[0])
 
     def close(self) -> None:

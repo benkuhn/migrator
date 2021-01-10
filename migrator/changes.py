@@ -48,6 +48,9 @@ class Phase(abc.ABC):
     def run(self, db: db.Database, index: models.PhaseIndex) -> None:
         pass
 
+    @abc.abstractmethod
+    def revert(self, db: db.Database, index: models.PhaseIndex) -> None:
+        pass
 
 class TransactionalPhase(Phase):
     def run(self, db: db.Database, index: models.PhaseIndex) -> None:
@@ -58,6 +61,17 @@ class TransactionalPhase(Phase):
 
     @abc.abstractmethod
     def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        pass
+
+    def revert(self, db: db.Database, index: models.PhaseIndex) -> None:
+        with db.tx():
+            audit = db.get_audit(index)
+            audit = db.audit_phase_revert_start(audit)
+            self.revert_inner(db, index)
+            db.audit_phase_revert_end(audit)
+
+    @abc.abstractmethod
+    def revert_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
         pass
 
 
@@ -74,6 +88,18 @@ class IdempotentPhase(Phase):
     def run_inner(self, db: db.Database) -> None:
         pass
 
+    def revert(self, db: db.Database, index: models.PhaseIndex) -> None:
+        with db.tx():
+            # FIXME: what happens if we already started?
+            audit = db.get_audit(index)
+            audit = db.audit_phase_revert_start(audit)
+        self.revert_inner(db, index)
+        with db.tx():
+            db.audit_phase_revert_end(audit)
+
+    @abc.abstractmethod
+    def revert_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        pass
 
 @dataclasses.dataclass
 class TransactionalDDLPhase(TransactionalPhase):
@@ -84,6 +110,9 @@ class TransactionalDDLPhase(TransactionalPhase):
         if self.up:
             db.cur.execute(self.up)
 
+    def revert_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        if self.down:
+            db.cur.execute(self.down)
 
 @dataclasses.dataclass
 class IdempotentDDLPhase(IdempotentPhase):
@@ -93,6 +122,10 @@ class IdempotentDDLPhase(IdempotentPhase):
     def run_inner(self, db: db.Database) -> None:
         if self.up:
             db.cur.execute(self.up)
+
+    def revert_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        if self.down:
+            db.cur.execute(self.down)
 
 
 class DDLStep(BaseModel, AbstractChange):
@@ -293,6 +326,9 @@ class CreateRenameViewPhase(RenameMixin, TransactionalPhase):
         """)
 
     # TODO: downgrade
+    def revert_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        schema = constants.SHIM_SCHEMA_FORMAT % index.revision
+        db.cur.execute(f"DROP VIEW {schema}.{self.table}")
 
 
 class RenameDropViewPhase(RenameMixin, TransactionalPhase):
@@ -301,3 +337,27 @@ class RenameDropViewPhase(RenameMixin, TransactionalPhase):
         schema = constants.SHIM_SCHEMA_FORMAT % index.revision
         db.cur.execute(f"DROP VIEW {schema}.{self.table}")
 
+    def revert_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        colnames = db._fetch_tx("""
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name   = %s
+        """, [self.table])
+        aliases = []
+        for (colname, ) in colnames:
+            newname = self.renames.pop(colname, None)
+            if newname is None:
+                aliases.append(colname)
+            else:
+                aliases.append(f"{colname} as {newname}")
+        if len(self.renames) != 0:
+            raise AssertionError(
+                "Columns not present: " + ",".join(self.renames.keys())
+            )
+        schema = constants.SHIM_SCHEMA_FORMAT % index.revision
+        db.cur.execute(f"""
+        CREATE VIEW {schema}.{self.table} AS SELECT
+          {", ".join(aliases)}
+        FROM public.{self.table}
+        """)
