@@ -13,10 +13,11 @@ Riskiest parts:
   - [x] Fix names
   - [x] Speed up tests
 - [x] Remove nulls in pydantic dicts
-- [ ] `$cmd revision` codegen works for:
+- [x] `$cmd revision` codegen works for:
   - [x] indexes
-  - [ ] constraints
-- [ ] impl renames
+  - [x] constraints
+- [x] impl renames
+- [ ] downgrading
 - [ ] impl `update_rows`
 
 Other orthogonal stuff

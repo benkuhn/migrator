@@ -79,3 +79,31 @@
     post_deploy:
       - drop_constraint:
           <<: *fkey-constraint
+- test: Rename columns
+  before: |
+    CREATE TABLE users (
+      u_id SERIAL PRIMARY KEY,
+      mobile TEXT,
+      email TEXT
+    );
+  after: |
+    CREATE TABLE users (
+      user_id SERIAL PRIMARY KEY,
+      mobile TEXT,
+      email_renamed TEXT
+    );
+  migration:
+    message: "a migration"
+    pre_deploy:
+      - begin_rename: &rename
+          table: users
+          renames:
+            u_id: user_id
+            email: email_renamed
+    post_deploy:
+      - finish_rename:
+          <<: *rename
+      - run_ddl:
+          up: ALTER SEQUENCE users_u_id_seq RENAME TO users_user_id_seq
+          down: ALTER SEQUENCE users_user_id_seq RENAME TO users_u_id_seq
+  test_codegen: false

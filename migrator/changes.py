@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple, Iterable
 
 import pydantic
 from pydantic import BaseModel, PrivateAttr
 
-from . import models, db
+from . import models, db, constants
 
 
 class Change(pydantic.BaseModel):
@@ -16,18 +16,17 @@ class Change(pydantic.BaseModel):
     drop_index: Optional[DropIndex] = None
     add_constraint: Optional[AddConstraint] = None
     drop_constraint: Optional[DropConstraint] = None
+    begin_rename: Optional[BeginRename] = None
+    finish_rename: Optional[FinishRename] = None
 
     @property
     def inner(self) -> AbstractChange:
-        result = (
-                self.run_ddl
-                or self.create_index
-                or self.drop_index
-                or self.add_constraint
-                or self.drop_constraint
-        )
-        assert result is not None
-        return result
+        for field in self.__fields_set__:
+            result = getattr(self, field)
+            if result is not None:
+                assert isinstance(result, AbstractChange)
+                return result
+        assert False
 
 
 class AbstractChange(abc.ABC):
@@ -54,11 +53,11 @@ class TransactionalPhase(Phase):
     def run(self, db: db.Database, index: models.PhaseIndex) -> None:
         with db.tx():
             audit = db.audit_phase_start(index)
-            self.run_inner(db)
+            self.run_inner(db, index)
             db.audit_phase_end(audit)
 
     @abc.abstractmethod
-    def run_inner(self, db: db.Database) -> None:
+    def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
         pass
 
 
@@ -81,7 +80,7 @@ class TransactionalDDLPhase(TransactionalPhase):
     up: Optional[str]
     down: Optional[str]
 
-    def run_inner(self, db: db.Database) -> None:
+    def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
         if self.up:
             db.cur.execute(self.up)
 
@@ -162,8 +161,8 @@ class ConstraintMixin(BaseModel):
     """
     @pydantic.root_validator
     def validate(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        # TODO: Work around pydantic bug: we get re-validated when passed to a containing
-        # class (e.g. in .wrap())
+        # TODO: Work around pydantic bug: we get re-validated when passed to a
+        # containing class (e.g. in .wrap())
         if not isinstance(values, dict):
             return values
         if values.get("check"):
@@ -225,4 +224,80 @@ class DropConstraint(ConstraintMixin, AbstractChange):
             TransactionalDDLPhase(self.drop_sql, self.add_sql),
         ]
 
+
+class RenameMixin(BaseModel):
+    table: str
+    renames: Dict[str, str]
+
+    def rename_sql(self, map: Iterable[Tuple[str, str]]) -> str:
+        return "; ".join(
+            [f"ALTER TABLE {self.table} RENAME COLUMN {old} TO {new}"
+             for old, new in map]
+        )
+
+    @property
+    def up_rename_sql(self):
+        return self.rename_sql(self.renames.items())
+
+    @property
+    def down_rename_sql(self):
+        return self.rename_sql((new, old) for old, new in self.renames.items())
+
+
+class BeginRename(RenameMixin, AbstractChange):
+    def wrap(self) -> Change:
+        return Change(begin_rename=self)
+
+    def _phases(self) -> List[Phase]:
+        return [
+            CreateRenameViewPhase(**self.dict())
+        ]
+
+
+class FinishRename(RenameMixin, AbstractChange):
+    def wrap(self) -> Change:
+        return Change(finish_rename=self)
+
+    def _phases(self) -> List[Phase]:
+        return [
+            TransactionalDDLPhase(up=self.up_rename_sql, down=self.down_rename_sql),
+            RenameDropViewPhase(**self.dict())
+        ]
+
+
+class CreateRenameViewPhase(RenameMixin, TransactionalPhase):
+
+    def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        colnames = db._fetch_tx("""
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name   = %s
+        """, [self.table])
+        aliases = []
+        for (colname, ) in colnames:
+            newname = self.renames.pop(colname, None)
+            if newname is None:
+                aliases.append(colname)
+            else:
+                aliases.append(f"{colname} as {newname}")
+        if len(self.renames) != 0:
+            raise AssertionError(
+                "Columns not present: " + ",".join(self.renames.keys())
+            )
+        schema = constants.SHIM_SCHEMA_FORMAT % index.revision
+        db.cur.execute(f"""
+        CREATE VIEW {schema}.{self.table} AS SELECT
+          {", ".join(aliases)}
+        FROM public.{self.table}
+        """)
+
+    # TODO: downgrade
+
+
+class RenameDropViewPhase(RenameMixin, TransactionalPhase):
+
+    def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
+        schema = constants.SHIM_SCHEMA_FORMAT % index.revision
+        db.cur.execute(f"DROP VIEW {schema}.{self.table}")
 

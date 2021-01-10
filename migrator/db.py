@@ -5,19 +5,15 @@ import os
 import random
 import re
 
-from .constants import NAME
+from .constants import SCHEMA_NAME
 from contextlib import contextmanager
-import hashlib
-from typing import Any, List, Iterator, Tuple, Callable, Optional, TypeVar, Iterable, \
-    Dict
+from typing import Any, List, Iterator, Optional, TypeVar, Iterable
 
 T = TypeVar("T")
 
 import psycopg2
 
 from . import models
-
-SCHEMA_NAME = f"{NAME}_status"
 
 SCHEMA_DDL = f"""
 CREATE SCHEMA {SCHEMA_NAME};
@@ -77,7 +73,7 @@ class Database:
         assert not self.in_tx
         return self._fetch_inner(query, kwargs)
 
-    def _fetch_tx(self, query: str, args: List[Any], **kwargs: Any) -> List[Any]:
+    def _fetch_tx(self, query: str, args: Optional[List[Any]] = None, **kwargs: Any) -> List[Any]:
         assert self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
