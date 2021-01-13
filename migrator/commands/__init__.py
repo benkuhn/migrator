@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass
 
-from typing import Any, NoReturn, Optional, TextIO
+from typing import Any, NoReturn, Optional, TextIO, cast
 
 from .. import models, db
 from . import text
@@ -76,4 +76,4 @@ class ConsoleUserInterface(UserInterface):
         exit(status)
 
     def open(self, filename: str, mode: str) -> TextIO:
-        return open(filename, mode)
+        return cast(TextIO, open(filename, mode))

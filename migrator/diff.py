@@ -18,7 +18,7 @@ Database = Any
 
 class DummyOptions:
     multiple_files = False
-    schemas = []
+    schemas: List[object] = []
     onetrans = False
     update = False
     revert = False
@@ -64,7 +64,7 @@ def diff(from_url: str, to_url: str) -> TwoLists[changes.Change]:
         return flatten_holders(pre_deploy), flatten_holders(post_deploy)
 
 
-def to_map(url):
+def to_map(url: str) -> Dict[str, Any]:
     with load(url) as db:
         return db.to_map()
 
@@ -76,7 +76,7 @@ class ChangeHolder:
     change: changes.AbstractChange
 
 
-def ddlify(stmts):
+def ddlify(stmts: List[str]) -> YamlMultiline:
     return YamlMultiline(
         "\n".join(stmt + ";" for stmt in pyrseas.database.flatten(stmts))
     )
@@ -84,7 +84,7 @@ def ddlify(stmts):
 
 class YamlMultiline(str):
     @staticmethod
-    def bar_presenter(dumper, data):
+    def bar_presenter(dumper: yaml.Dumper, data: str) -> str:
         return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
 
 
@@ -104,7 +104,7 @@ def flatten_holders(holders: List[ChangeHolder]) -> List[changes.Change]:
 
 SUPPORTED_CONSTRAINTS = (dbo.constraint.CheckConstraint, dbo.constraint.ForeignKey)
 
-def make_change_check(t: Type[Any], obj: dbo.constraint.Constraint) -> changes.Change:
+def make_change_check(t: Type[changes.AbstractChange], obj: Any) -> changes.AbstractChange:
     table = None
     domain = obj.schema + '.' + obj.table
     if obj._table.objtype == 'TABLE':
@@ -120,14 +120,17 @@ def make_change_check(t: Type[Any], obj: dbo.constraint.Constraint) -> changes.C
         assert False
     return t(
         table=table, domain=domain, name=obj.name, **kwargs
-    )
+    ) # type: ignore
 
 
-class MigratorDatabase(pyrseas.database.Database):
+class MigratorDatabase(pyrseas.database.Database): # type: ignore
     """Subclass of pyrseas Database that knows how to emit changesets instead of
     SQL statements."""
 
-    def diff_map_changes(self, input_map, quote_reserved=True) -> TwoLists[ChangeHolder]:
+    db: Any
+    ndb: Any
+
+    def diff_map_changes(self, input_map: Dict[str, Any], quote_reserved: bool=True) -> TwoLists[ChangeHolder]:
         """Copied from Pyrseas, but emits ChangeHolder instead."""
         from pyrseas.dbobject.table import Table
         from pyrseas.database import fetch_reserved_words, itemgetter, flatten
@@ -166,9 +169,9 @@ class MigratorDatabase(pyrseas.database.Database):
         # Then generate the sql for all the objects, walking in dependency
         # order over all the db objects
 
-        pre_deploy_changes = []
-        post_deploy_changes = []
-        def emit(changes, obj, db, change) -> None:
+        pre_deploy_changes: List[ChangeHolder] = []
+        post_deploy_changes: List[ChangeHolder] = []
+        def emit(changes: List[ChangeHolder], obj: Any, db: Any, change: changes.AbstractChange) -> None:
             changes.append(ChangeHolder(
                 obj=obj, deps=obj.get_deps(db), change=change
             ))

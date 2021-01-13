@@ -142,7 +142,7 @@ class Database:
         """, **dataclasses.asdict(index))
         return map_audit(result[0])
 
-    def audit_phase_revert_start(self, audit: models.MigrationAudit):
+    def audit_phase_revert_start(self, audit: models.MigrationAudit) -> models.MigrationAudit:
         result = self._fetch_tx(
             f"""
         UPDATE {SCHEMA_NAME}.migration_audit
@@ -156,7 +156,7 @@ class Database:
             pass
         return map_audit(result[0])
 
-    def audit_phase_revert_end(self, audit: models.MigrationAudit):
+    def audit_phase_revert_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
         result = self._fetch_tx(
             f"""
         UPDATE {SCHEMA_NAME}.migration_audit
@@ -177,7 +177,9 @@ class Database:
 
 
 @contextlib.contextmanager
-def temp_db_url(control_conn: Any) -> Iterator[str]:
+def temp_db_url(  # type: ignore
+        control_conn: Any
+) -> Iterator[str]:
     cur = control_conn.cursor()
     db_name = ''.join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
     cur.execute("CREATE DATABASE " + db_name)
@@ -190,6 +192,6 @@ def temp_db_url(control_conn: Any) -> Iterator[str]:
         cur.close()
 
 
-def replace_db(database_url, db_name):
+def replace_db(database_url: str, db_name: str) -> str:
     name = re.sub("/[^/]+$", "/" + db_name, database_url)
     return name

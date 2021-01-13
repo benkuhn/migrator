@@ -209,9 +209,10 @@ class ConstraintMixin(BaseModel):
     """
 
     @property
-    def alter(self):
+    def alter(self) -> str:
         objtype = "TABLE" if self.table else "DOMAIN"
         name = self.table or self.domain
+        assert name
         return f"ALTER {objtype} {q(name)}"
 
     @property
@@ -270,11 +271,11 @@ class RenameMixin(BaseModel):
         )
 
     @property
-    def up_rename_sql(self):
+    def up_rename_sql(self) -> str:
         return self.rename_sql(self.renames.items())
 
     @property
-    def down_rename_sql(self):
+    def down_rename_sql(self) -> str:
         return self.rename_sql((new, old) for old, new in self.renames.items())
 
 

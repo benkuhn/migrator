@@ -2,6 +2,7 @@ import shlex
 import subprocess
 import os.path
 import textwrap
+from collections import Iterator
 from contextlib import contextmanager
 
 import psycopg2
@@ -34,7 +35,7 @@ def revision(ctx: Context, message: str) -> None:
     old_schema_path = os.path.join(dir, f"{num - 1}-schema.sql")
     cmd = shlex.split(repo.config.schema_dump_command)
     with ctx.ui.open(new_schema_path, "w") as f:
-        subprocess.check_call(cmd, stdout=f, encoding='utf-8')
+        subprocess.check_call(cmd, stdout=f)
     with ctx.ui.open(new_schema_path, "r") as f:
         new_schema_sql = f.read()
     with open(old_schema_path, "r") as f:
@@ -59,7 +60,7 @@ def revision(ctx: Context, message: str) -> None:
         f.write(yaml.safe_dump(migration, sort_keys=False))
 
 @contextmanager
-def temp_db_with_schema(db: db.Database, schema: str) -> str:
+def temp_db_with_schema(db: db.Database, schema: str) -> Iterator[str]:
     with db.temp_db_url() as url:
         with psycopg2.connect(url) as conn:
             conn.set_session(autocommit=True)
@@ -69,7 +70,7 @@ def temp_db_with_schema(db: db.Database, schema: str) -> str:
         yield url
 
 
-def get_migration_ddl(from_url, to_url) -> str:
+def get_migration_ddl(from_url: str, to_url: str) -> str:
     with diff.load(from_url) as from_db, \
         diff.load(to_url) as to_db:
         in_map = to_db.to_map()

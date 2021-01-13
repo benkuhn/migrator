@@ -27,7 +27,7 @@ Dev setup
 
 Logic
 
-- [ ] async connections for progress reporting
+- [ ] progress reporting
 - [ ] init script + shim schema creation
 - [ ] downgrades + migration-in-db
 - [ ] step idempotency tests

@@ -212,7 +212,7 @@ class Migration:
     pre_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
     post_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
 
-    def phases(self, index: PhaseIndex) -> Tuple[IndexChangePhase]:
+    def phases(self, index: PhaseIndex) -> Iterator[IndexChangePhase]:
         for i_change, change in enumerate(self.pre_deploy):
             for i_phase, phase in enumerate(change.inner.phases):
                 new_index = dataclasses.replace(index, change=i_change, phase=i_phase)

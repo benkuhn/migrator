@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: docker.io/postgres:9.6.18
+    image: docker.io/postgres:12.5
     environment:
       POSTGRES_USER: migrator
       POSTGRES_PASSWORD: rotargim
