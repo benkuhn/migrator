@@ -22,27 +22,40 @@ CREATE TABLE {SCHEMA_NAME}.migrations (
   revision INT NOT NULL,
   migration_hash BYTEA NOT NULL,
   schema_hash BYTEA NOT NULL,
-  file TEXT NOT NULL
+  file TEXT NOT NULL,
+  is_deleted BOOLEAN NOT NULL,
+  PRIMARY KEY (revision, migration_hash, schema_hash)
 );
+
+CREATE UNIQUE INDEX migration_unique_revision ON {SCHEMA_NAME}.migrations (revision)
+    WHERE NOT is_deleted;
 
 CREATE TABLE {SCHEMA_NAME}.migration_audit (
   id SERIAL PRIMARY KEY,
-  started_at TIMESTAMP WITH TIME ZONE NOT NULL,
   revision INT NOT NULL,
   migration_hash BYTEA NOT NULL,
   schema_hash BYTEA NOT NULL,
   pre_deploy BOOL NOT NULL,
   change INT NOT NULL,
   phase INT NOT NULL,
+  started_at TIMESTAMP WITH TIME ZONE NOT NULL,
   finished_at TIMESTAMP WITH TIME ZONE,
   revert_started_at TIMESTAMP WITH TIME ZONE,
-  revert_finished_at TIMESTAMP WITH TIME ZONE
+  revert_finished_at TIMESTAMP WITH TIME ZONE,
+  CHECK (revert_started_at IS NULL OR finished_at IS NOT NULL),
+  CHECK (revert_finished_at IS NULL or revert_started_at IS NOT NULL)
+--  FOREIGN KEY (revision, migration_hash, schema_hash) REFERENCES {SCHEMA_NAME}.migrations
+--    (revision, migration_hash, schema_hash)
 );
 
+CREATE UNIQUE INDEX migration_audit_unique ON {SCHEMA_NAME}.migration_audit ((1))
+  WHERE (finished_at IS NULL OR (
+    revert_started_at IS NOT NULL AND revert_finished_at IS NULL));
+
 CREATE TABLE {SCHEMA_NAME}.connections (
+  pid INT NOT NULL PRIMARY KEY,
   revision INT NOT NULL,
   schema_hash BYTEA NOT NULL,
-  pid INT NOT NULL,
   backend_start TIMESTAMP WITH TIME ZONE NOT NULL
 );
 """
