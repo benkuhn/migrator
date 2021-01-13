@@ -25,6 +25,7 @@ CREATE SCHEMA public;
 DROP SCHEMA IF EXISTS {SCHEMA_NAME} CASCADE; 
 """
 
+
 @pytest.fixture
 def test_db_url(control_conn: Any) -> Iterator[str]:
     try:
@@ -39,11 +40,7 @@ def ctx(test_db_url: str) -> Iterator[Context]:
     old_dir = os.getcwd()
     os.chdir("test")
     try:
-        ctx = Context(
-            "migrator.yml",
-            test_db_url,
-            FakeUserInterface()
-        )
+        ctx = Context("migrator.yml", test_db_url, FakeUserInterface())
         with contextlib.closing(ctx):
             yield ctx
     finally:

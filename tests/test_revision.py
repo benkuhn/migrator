@@ -11,6 +11,7 @@ pre_deploy:
     up: "ALTER TABLE public.users\\n    ADD COLUMN name text NOT NULL;"
 """
 
+
 def test_revision(ctx: Context) -> None:
     revision.revision(ctx, "a new revision")
     with ctx.ui.open("migrations/3-schema.sql", "r") as f:

@@ -16,6 +16,7 @@ from . import changes
 
 Database = Any
 
+
 class DummyOptions:
     multiple_files = False
     schemas: List[object] = []
@@ -26,18 +27,19 @@ class DummyOptions:
     no_owner = False
     no_privs = False
 
+
 def db_url_to_config(db_url: str) -> Dict[str, Any]:
     parsed = urlparse(db_url)
-    assert parsed.scheme in {'postgres', 'postgresql'}
+    assert parsed.scheme in {"postgres", "postgresql"}
     return {
         "database": {
             "host": parsed.hostname,
             "username": parsed.username,
             "password": parsed.password,
             "port": parsed.port or 5432,
-            "dbname": parsed.path.lstrip("/")
+            "dbname": parsed.path.lstrip("/"),
         },
-        "options": DummyOptions
+        "options": DummyOptions,
     }
 
 
@@ -85,7 +87,7 @@ def ddlify(stmts: List[str]) -> YamlMultiline:
 class YamlMultiline(str):
     @staticmethod
     def bar_presenter(dumper: yaml.Dumper, data: str) -> str:
-        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
 
 
 yaml.add_representer(YamlMultiline, YamlMultiline.bar_presenter, Dumper=yaml.SafeDumper)
@@ -104,44 +106,47 @@ def flatten_holders(holders: List[ChangeHolder]) -> List[changes.Change]:
 
 SUPPORTED_CONSTRAINTS = (dbo.constraint.CheckConstraint, dbo.constraint.ForeignKey)
 
-def make_change_check(t: Type[changes.AbstractChange], obj: Any) -> changes.AbstractChange:
+
+def make_change_check(
+    t: Type[changes.AbstractChange], obj: Any
+) -> changes.AbstractChange:
     table = None
-    domain = obj.schema + '.' + obj.table
-    if obj._table.objtype == 'TABLE':
+    domain = obj.schema + "." + obj.table
+    if obj._table.objtype == "TABLE":
         domain, table = table, domain
     if isinstance(obj, dbo.constraint.CheckConstraint):
         kwargs = {"check": obj.expression}
     elif isinstance(obj, dbo.constraint.ForeignKey):
         kwargs = {
             "foreign_key": obj.key_columns(),
-            "references": obj.add().split("REFERENCES ")[1]
+            "references": obj.add().split("REFERENCES ")[1],
         }
     else:
         assert False
-    return t(
-        table=table, domain=domain, name=obj.name, **kwargs
-    ) # type: ignore
+    return t(table=table, domain=domain, name=obj.name, **kwargs)  # type: ignore
 
 
-class MigratorDatabase(pyrseas.database.Database): # type: ignore
+class MigratorDatabase(pyrseas.database.Database):  # type: ignore
     """Subclass of pyrseas Database that knows how to emit changesets instead of
     SQL statements."""
 
     db: Any
     ndb: Any
 
-    def diff_map_changes(self, input_map: Dict[str, Any], quote_reserved: bool=True) -> TwoLists[ChangeHolder]:
+    def diff_map_changes(
+        self, input_map: Dict[str, Any], quote_reserved: bool = True
+    ) -> TwoLists[ChangeHolder]:
         """Copied from Pyrseas, but emits ChangeHolder instead."""
         from pyrseas.dbobject.table import Table
         from pyrseas.database import fetch_reserved_words, itemgetter, flatten
 
         if not self.db:
             self.from_catalog()
-        opts = self.config['options']
+        opts = self.config["options"]
         if opts.schemas:
-            schlist = ['schema ' + sch for sch in opts.schemas]
+            schlist = ["schema " + sch for sch in opts.schemas]
             for sch in list(input_map.keys()):
-                if sch not in schlist and sch.startswith('schema '):
+                if sch not in schlist and sch.startswith("schema "):
                     del input_map[sch]
             self._trim_objects(opts.schemas)
 
@@ -149,12 +154,14 @@ class MigratorDatabase(pyrseas.database.Database): # type: ignore
         if quote_reserved:
             fetch_reserved_words(self.dbconn)
 
-        langs = [lang[0] for lang in self.dbconn.fetchall(
-            "SELECT tmplname FROM pg_pltemplate")]
+        langs = [
+            lang[0]
+            for lang in self.dbconn.fetchall("SELECT tmplname FROM pg_pltemplate")
+        ]
         self.from_map(input_map, langs)
         if opts.revert:
             (self.db, self.ndb) = (self.ndb, self.db)
-            del self.ndb.schemas['pg_catalog']
+            del self.ndb.schemas["pg_catalog"]
             self.db.languages.dbconn = self.dbconn
 
         # First sort the objects in the new db in dependency order
@@ -171,27 +178,34 @@ class MigratorDatabase(pyrseas.database.Database): # type: ignore
 
         pre_deploy_changes: List[ChangeHolder] = []
         post_deploy_changes: List[ChangeHolder] = []
-        def emit(changes: List[ChangeHolder], obj: Any, db: Any, change: changes.AbstractChange) -> None:
-            changes.append(ChangeHolder(
-                obj=obj, deps=obj.get_deps(db), change=change
-            ))
 
+        def emit(
+            changes: List[ChangeHolder],
+            obj: Any,
+            db: Any,
+            change: changes.AbstractChange,
+        ) -> None:
+            changes.append(ChangeHolder(obj=obj, deps=obj.get_deps(db), change=change))
 
         for new in new_objs:
             d = self.db.dbobjdict_from_catalog(new.catalog)
             old = d.get(new.key())
             if old is not None:
                 if isinstance(new, dbo.table.Table):
-                    emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
-                        up=ddlify(
-                            alter_table_add(old, new)
-                            + alter_table_modify(old, new)
+                    emit(
+                        pre_deploy_changes,
+                        new,
+                        self.ndb,
+                        changes.DDLStep(
+                            up=ddlify(
+                                alter_table_add(old, new) + alter_table_modify(old, new)
+                            ),
+                            down=ddlify(
+                                alter_table_modify(new, old)
+                                + new.alter_drop_columns(old)
+                            ),
                         ),
-                        down=ddlify(
-                            alter_table_modify(new, old)
-                            + new.alter_drop_columns(old)
-                        ),
-                    ))
+                    )
                 elif isinstance(new, dbo.table.Sequence):
                     # FIXME: sequence diff
                     # This is breaking because pyrseas doesn't correctly handle
@@ -199,29 +213,44 @@ class MigratorDatabase(pyrseas.database.Database): # type: ignore
                     # ALTER SEQUENCE ... NO MINVALUE NO MAXVALUE
                     pass
                 else:
-                    emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
-                        up=ddlify(old.alter(new)),
-                        down=ddlify(new.alter(old))
-                    ))
+                    emit(
+                        pre_deploy_changes,
+                        new,
+                        self.ndb,
+                        changes.DDLStep(
+                            up=ddlify(old.alter(new)), down=ddlify(new.alter(old))
+                        ),
+                    )
             else:
                 if isinstance(new, dbo.index.Index):
                     assert not new.cluster
-                    emit(pre_deploy_changes, new, self.ndb, make_change_index(
-                        changes.CreateIndex, new
-                    ))
+                    emit(
+                        pre_deploy_changes,
+                        new,
+                        self.ndb,
+                        make_change_index(changes.CreateIndex, new),
+                    )
                 elif isinstance(new, SUPPORTED_CONSTRAINTS):
-                    emit(pre_deploy_changes, new, self.ndb, make_change_check(
-                        changes.AddConstraint, new
-                    ))
+                    emit(
+                        pre_deploy_changes,
+                        new,
+                        self.ndb,
+                        make_change_check(changes.AddConstraint, new),
+                    )
                 else:
-                    emit(pre_deploy_changes, new, self.ndb, changes.DDLStep(
-                        up=ddlify(new.create_sql(self.dbconn.version)),
-                        down=ddlify(new.drop())
-                    ))
+                    emit(
+                        pre_deploy_changes,
+                        new,
+                        self.ndb,
+                        changes.DDLStep(
+                            up=ddlify(new.create_sql(self.dbconn.version)),
+                            down=ddlify(new.drop()),
+                        ),
+                    )
 
                 # Check if the object just created was renamed, in which case
                 # don't try to delete the original one
-                if getattr(new, 'oldname', None):
+                if getattr(new, "oldname", None):
                     try:
                         origname, new.name = new.name, new.oldname
                         oldkey = new.key()
@@ -247,22 +276,33 @@ class MigratorDatabase(pyrseas.database.Database): # type: ignore
             new = d.get(old.key())
             if isinstance(old, Table):
                 if new is not None:
-                    emit(post_deploy_changes, old, self.db, changes.DDLStep(
-                        up=ddlify(old.alter_drop_columns(new)),
-                        down=ddlify(alter_table_add(new, old))
-                    ))
+                    emit(
+                        post_deploy_changes,
+                        old,
+                        self.db,
+                        changes.DDLStep(
+                            up=ddlify(old.alter_drop_columns(new)),
+                            down=ddlify(alter_table_add(new, old)),
+                        ),
+                    )
             if new is None:
                 if isinstance(old, SUPPORTED_CONSTRAINTS):
                     # FIXME: it would make more sense to make this pre-deploy if we
                     #  don't depend on objects that only get dropped post-deploy :\
-                    emit(post_deploy_changes, old, self.db, make_change_check(
-                        changes.DropConstraint, old
-                    ))
+                    emit(
+                        post_deploy_changes,
+                        old,
+                        self.db,
+                        make_change_check(changes.DropConstraint, old),
+                    )
                 elif isinstance(old, dbo.constraint.Index):
-                    emit(post_deploy_changes, old, self.db, make_change_index(
-                        changes.DropIndex, old
-                    ))
-                elif not getattr(old, '_nodrop', False) and old.key() != 'pg_catalog':
+                    emit(
+                        post_deploy_changes,
+                        old,
+                        self.db,
+                        make_change_index(changes.DropIndex, old),
+                    )
+                elif not getattr(old, "_nodrop", False) and old.key() != "pg_catalog":
                     post_deploy_changes.append(
                         ChangeHolder(
                             obj=old,
@@ -270,12 +310,12 @@ class MigratorDatabase(pyrseas.database.Database): # type: ignore
                             change=changes.DDLStep(
                                 up=ddlify(old.drop()),
                                 down=ddlify(old.create_sql(self.dbconn.version)),
-                            )
+                            ),
                         )
                     )
 
-        if 'datacopy' in self.config:
-            opts.data_dir = self.config['files']['data_path']
+        if "datacopy" in self.config:
+            opts.data_dir = self.config["files"]["data_path"]
             # stmts.append(self.ndb.schemas.data_import(opts))
             assert False
 
@@ -329,8 +369,8 @@ def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[
     base = "ALTER %s %s\n    " % (self.objtype, self.qualname())
     # check input columns
     for (num, incol) in enumerate(intable.columns):
-        if hasattr(incol, 'oldname'):
-            assert (self.columns[num].name == incol.oldname)
+        if hasattr(incol, "oldname"):
+            assert self.columns[num].name == incol.oldname
             stmts.append(self.columns[num].rename(incol.name))
         # check existing columns
         # FIXME: is `num < dbcols` appropriate here? What if I added a column in the
@@ -349,16 +389,15 @@ def alter_table_modify(self: dbo.table.Table, intable: dbo.table.Table) -> List[
         newopts = intable.options
     diff_opts = self.diff_options(newopts)
     if diff_opts:
-        stmts.append("ALTER %s %s %s" % (self.objtype, self.identifier(),
-                                         diff_opts))
+        stmts.append("ALTER %s %s %s" % (self.objtype, self.identifier(), diff_opts))
     if colprivs:
         stmts.append(colprivs)
     # FIXME maybe refuse to emit this...
     if intable.tablespace is not None:
-        if self.tablespace is None \
-                or self.tablespace != intable.tablespace:
-            stmts.append(base + "SET TABLESPACE %s"
-                         % dbo.table.quote_id(intable.tablespace))
+        if self.tablespace is None or self.tablespace != intable.tablespace:
+            stmts.append(
+                base + "SET TABLESPACE %s" % dbo.table.quote_id(intable.tablespace)
+            )
     elif self.tablespace is not None:
         stmts.append(base + "SET TABLESPACE pg_default")
 
@@ -376,5 +415,5 @@ def make_change_index(t: Type[Any], index: dbo.index.Index) -> changes.CreateInd
         table=index.qualname(index.schema, index.table),
         using=None if index.access_method == "btree" else index.access_method,
         expr=index.key_expressions(),
-        where=index.predicate
+        where=index.predicate,
     )

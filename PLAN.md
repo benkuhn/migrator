@@ -23,6 +23,7 @@ Dev setup
 
 - [x] mypy
 - [ ] CI
+- [x] black
 - [x] DB constraints
 
 Logic

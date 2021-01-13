@@ -266,8 +266,10 @@ class RenameMixin(BaseModel):
 
     def rename_sql(self, map: Iterable[Tuple[str, str]]) -> str:
         return "; ".join(
-            [f"ALTER TABLE {self.table} RENAME COLUMN {old} TO {new}"
-             for old, new in map]
+            [
+                f"ALTER TABLE {self.table} RENAME COLUMN {old} TO {new}"
+                for old, new in map
+            ]
         )
 
     @property
@@ -285,7 +287,9 @@ class BeginRename(RenameMixin, AbstractChange):
 
     def _phases(self) -> List[Phase]:
         return [
-            Phase(CreateRenameViewPhase(**self.dict()), RenameDropViewPhase(**self.dict()))
+            Phase(
+                CreateRenameViewPhase(**self.dict()), RenameDropViewPhase(**self.dict())
+            )
         ]
 
 
@@ -299,24 +303,25 @@ class FinishRename(RenameMixin, AbstractChange):
             Phase(
                 RenameDropViewPhase(**self.dict()),
                 CreateRenameViewPhase(
-                    table=self.table,
-                    renames={v: k for k, v in self.renames.items()}
-                )
-            )
+                    table=self.table, renames={v: k for k, v in self.renames.items()}
+                ),
+            ),
         ]
 
 
 class CreateRenameViewPhase(RenameMixin, TransactionalPhase):
-
     def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
-        colnames = db._fetch_tx("""
+        colnames = db._fetch_tx(
+            """
         SELECT column_name
           FROM information_schema.columns
          WHERE table_schema = 'public'
            AND table_name   = %s
-        """, [self.table])
+        """,
+            [self.table],
+        )
         aliases = []
-        for (colname, ) in colnames:
+        for (colname,) in colnames:
             newname = self.renames.pop(colname, None)
             if newname is None:
                 aliases.append(colname)
@@ -327,14 +332,16 @@ class CreateRenameViewPhase(RenameMixin, TransactionalPhase):
                 "Columns not present: " + ",".join(self.renames.keys())
             )
         schema = constants.SHIM_SCHEMA_FORMAT % index.revision
-        db.cur.execute(f"""
+        db.cur.execute(
+            f"""
         CREATE VIEW {schema}.{self.table} AS SELECT
           {", ".join(aliases)}
         FROM public.{self.table}
-        """)
+        """
+        )
+
 
 class RenameDropViewPhase(RenameMixin, TransactionalPhase):
-
     def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
         schema = constants.SHIM_SCHEMA_FORMAT % index.revision
         db.cur.execute(f"DROP VIEW {schema}.{self.table}")

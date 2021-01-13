@@ -64,10 +64,12 @@ PHASE_INDEX_FIELDS = "revision, migration_hash, schema_hash, pre_deploy, change,
 
 AUDIT_FIELDS = f"id, started_at, finished_at, revert_started_at, revert_finished_at, {PHASE_INDEX_FIELDS}"
 
+
 def map_audit(row: Iterable[Any]) -> models.MigrationAudit:
     fields = list(row)
     index = models.PhaseIndex(*fields[-6:])
-    return models.MigrationAudit(*fields[:-6], index) # type: ignore
+    return models.MigrationAudit(*fields[:-6], index)  # type: ignore
+
 
 class Database:
     def __init__(self, database_url: str) -> None:
@@ -86,7 +88,9 @@ class Database:
         assert not self.in_tx
         return self._fetch_inner(query, kwargs)
 
-    def _fetch_tx(self, query: str, args: Sequence[Any] = (), **kwargs: Any) -> List[Any]:
+    def _fetch_tx(
+        self, query: str, args: Sequence[Any] = (), **kwargs: Any
+    ) -> List[Any]:
         assert self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
@@ -99,46 +103,57 @@ class Database:
                 yield
             finally:
                 self.in_tx = False
-    
+
     def is_set_up(self) -> bool:
-        return self._fetch("""
+        return self._fetch(
+            """
         SELECT EXISTS (
           SELECT FROM information_schema.schemata
           WHERE schema_name = %(schema)s
         );
-        """, schema=SCHEMA_NAME)[0][0]
+        """,
+            schema=SCHEMA_NAME,
+        )[0][0]
 
     def create_schema(self) -> None:
         with self.tx():
             self.cur.execute(SCHEMA_DDL)
 
     def get_last_finished(self) -> Optional[models.MigrationAudit]:
-        result = self._fetch(f"""
+        result = self._fetch(
+            f"""
         SELECT {AUDIT_FIELDS}
         FROM {SCHEMA_NAME}.migration_audit
         WHERE finished_at IS NOT NULL
         AND revert_finished_at IS NOT NULL
         ORDER BY id DESC
-        LIMIT 1""")
+        LIMIT 1"""
+        )
         if len(result) == 0:
             return None
         return map_audit(result[0])
 
     def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
-        result = self._fetch_tx(f"""
+        result = self._fetch_tx(
+            f"""
         INSERT INTO {SCHEMA_NAME}.migration_audit
             (started_at, {PHASE_INDEX_FIELDS})
         VALUES
             (now(), %s, %s, %s, %s, %s, %s)
-        RETURNING {AUDIT_FIELDS}""", dataclasses.astuple(index))
+        RETURNING {AUDIT_FIELDS}""",
+            dataclasses.astuple(index),
+        )
         return map_audit(result[0])
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
-        result = self._fetch_tx(f"""
+        result = self._fetch_tx(
+            f"""
         UPDATE {SCHEMA_NAME}.migration_audit
             SET finished_at = now()
         WHERE id = %s AND finished_at IS NULL
-        RETURNING {AUDIT_FIELDS}""", (audit.id, ))
+        RETURNING {AUDIT_FIELDS}""",
+            (audit.id,),
+        )
         return map_audit(result[0])
 
     def get_audit(self, index: models.PhaseIndex) -> models.MigrationAudit:
@@ -152,31 +167,37 @@ class Database:
         AND phase = %(phase)s
         AND change = %(change)s
         ORDER BY id DESC LIMIT 1
-        """, **dataclasses.asdict(index))
+        """,
+            **dataclasses.asdict(index),
+        )
         return map_audit(result[0])
 
-    def audit_phase_revert_start(self, audit: models.MigrationAudit) -> models.MigrationAudit:
+    def audit_phase_revert_start(
+        self, audit: models.MigrationAudit
+    ) -> models.MigrationAudit:
         result = self._fetch_tx(
             f"""
         UPDATE {SCHEMA_NAME}.migration_audit
             SET revert_started_at = now()
         WHERE id = %s AND revert_started_at IS NULL
         RETURNING {AUDIT_FIELDS}""",
-            (audit.id, )
+            (audit.id,),
         )
         if not result:
             x = 1
             pass
         return map_audit(result[0])
 
-    def audit_phase_revert_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
+    def audit_phase_revert_end(
+        self, audit: models.MigrationAudit
+    ) -> models.MigrationAudit:
         result = self._fetch_tx(
             f"""
         UPDATE {SCHEMA_NAME}.migration_audit
             SET revert_finished_at = now()
         WHERE id = %s AND revert_finished_at IS NULL
         RETURNING {AUDIT_FIELDS}""",
-            (audit.id, )
+            (audit.id,),
         )
         return map_audit(result[0])
 
@@ -190,11 +211,9 @@ class Database:
 
 
 @contextlib.contextmanager
-def temp_db_url(  # type: ignore
-        control_conn: Any
-) -> Iterator[str]:
+def temp_db_url(control_conn: Any) -> Iterator[str]:  # type: ignore
     cur = control_conn.cursor()
-    db_name = ''.join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
+    db_name = "".join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
     cur.execute("CREATE DATABASE " + db_name)
     try:
         url = os.environ["DATABASE_URL"]

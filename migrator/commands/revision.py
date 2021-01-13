@@ -24,6 +24,7 @@ pre_deploy:
 
 DDL_INDENT = " " * 6
 
+
 def revision(ctx: Context, message: str) -> None:
     repo = ctx.repo()
     db = ctx.db()
@@ -41,23 +42,25 @@ def revision(ctx: Context, message: str) -> None:
     with open(old_schema_path, "r") as f:
         old_schema_sql = f.read()
 
-    with temp_db_with_schema(db, old_schema_sql) as old_url, \
-        temp_db_with_schema(db, new_schema_sql) as new_url:
+    with temp_db_with_schema(db, old_schema_sql) as old_url, temp_db_with_schema(
+        db, new_schema_sql
+    ) as new_url:
         pre_deploy, post_deploy = diff.diff(old_url, new_url)
 
     # FIXME: hack to make parent references work :( To fix, probably refactor to use
     # visitor pattern so we don't need parents or something?
     with ctx.ui.open(migration_path, "w") as f:
-        f.write('')
+        f.write("")
 
     migration = {
         "message": message,
         "pre_deploy": [step.dict(exclude_defaults=True) for step in pre_deploy],
-        "post_deploy": [step.dict(exclude_defaults=True) for step in post_deploy]
+        "post_deploy": [step.dict(exclude_defaults=True) for step in post_deploy],
     }
 
     with ctx.ui.open(migration_path, "w") as f:
         f.write(yaml.safe_dump(migration, sort_keys=False))
+
 
 @contextmanager
 def temp_db_with_schema(db: db.Database, schema: str) -> Iterator[str]:
@@ -71,9 +74,8 @@ def temp_db_with_schema(db: db.Database, schema: str) -> Iterator[str]:
 
 
 def get_migration_ddl(from_url: str, to_url: str) -> str:
-    with diff.load(from_url) as from_db, \
-        diff.load(to_url) as to_db:
+    with diff.load(from_url) as from_db, diff.load(to_url) as to_db:
         in_map = to_db.to_map()
         stmts = from_db.diff_map(in_map)
         # FIXME eliminate REVOKEs in a less hacky way
-        return "\n".join(stmt + ';' for stmt in stmts if not stmt.startswith("REVOKE"))
+        return "\n".join(stmt + ";" for stmt in stmts if not stmt.startswith("REVOKE"))

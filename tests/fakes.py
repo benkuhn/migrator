@@ -50,7 +50,7 @@ def schema_db_url(conn: Any, schema_sql: str) -> str:
     db_name = f"test_{hash}"
     url = db.replace_db(os.environ["DATABASE_URL"], db_name)
     with conn.cursor() as cur:
-        cur.execute("SELECT * FROM pg_database WHERE datname = %s", (db_name, ))
+        cur.execute("SELECT * FROM pg_database WHERE datname = %s", (db_name,))
         results = cur.fetchall()
         if len(results):
             regen_all = False
@@ -74,6 +74,7 @@ def schema_db_url(conn: Any, schema_sql: str) -> str:
                 conn.rollback()
                 cur.execute(f"DROP DATABASE {db_name}")
                 raise
+
 
 class FakeContext(Context):
     # stub to help tests typecheck

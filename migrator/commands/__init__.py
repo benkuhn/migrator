@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional, TextIO, cast
 from .. import models, db
 from . import text
 
+
 @dataclass
 class Context:
     config_path: str
@@ -32,6 +33,7 @@ class Context:
             self._db = None
         self.ui.close()
 
+
 class UserInterface(abc.ABC):
     def ask_yes_no(self, message: str) -> bool:
         result = self.input(f"{message} {text.PROMPT_YES_NO}")
@@ -47,7 +49,9 @@ class UserInterface(abc.ABC):
         self.exit(1)
 
     @abc.abstractmethod
-    def print(self, *args: object, sep: Optional[str] = ' ', end: Optional[str] = '\n') -> None:
+    def print(
+        self, *args: object, sep: Optional[str] = " ", end: Optional[str] = "\n"
+    ) -> None:
         pass
 
     @abc.abstractmethod
@@ -65,8 +69,11 @@ class UserInterface(abc.ABC):
     def close(self) -> None:
         pass
 
+
 class ConsoleUserInterface(UserInterface):
-    def print(self, *args: object, sep: Optional[str] = ' ', end: Optional[str] = '\n') -> None:
+    def print(
+        self, *args: object, sep: Optional[str] = " ", end: Optional[str] = "\n"
+    ) -> None:
         print(args, sep=sep, end=end)
 
     def input(self, prompt: str) -> str:

@@ -4,6 +4,20 @@
 #
 #    pip-compile
 #
+appdirs==1.4.4
+    # via black
+black==20.8b1
+    # via -r requirements.in
+click==7.1.2
+    # via black
+mypy-extensions==0.4.3
+    # via
+    #   black
+    #   mypy
+mypy==0.790
+    # via -r requirements.in
+pathspec==0.8.1
+    # via black
 pgdbconn==0.8.0
     # via pyrseas
 psycopg2==2.8.6
@@ -18,5 +32,17 @@ pyyaml==5.3.1
     # via
     #   -r requirements.in
     #   pyrseas
+regex==2020.11.13
+    # via black
 toml==0.10.2
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   black
+typed-ast==1.4.2
+    # via
+    #   black
+    #   mypy
+typing-extensions==3.7.4.3
+    # via
+    #   black
+    #   mypy

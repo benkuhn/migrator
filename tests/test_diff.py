@@ -15,7 +15,7 @@ class DiffFixture(pydantic.BaseModel):
     test: str
     before: str
     after: str
-    test_during_deploy: str = 'select 1'
+    test_during_deploy: str = "select 1"
     migration: models.Migration
     reverse: Optional[models.Migration] = None
     test_codegen: bool = True
@@ -31,7 +31,7 @@ class DiffFixture(pydantic.BaseModel):
             before=self.after,
             after=self.before,
             migration=self.reverse,
-            reverse=self.migration
+            reverse=self.migration,
         )
 
     def run_codegen(self, control_conn: Any) -> None:
@@ -41,7 +41,7 @@ class DiffFixture(pydantic.BaseModel):
         migration = models.Migration(
             message=self.migration.message,
             pre_deploy=pre_deploy,
-            post_deploy=post_deploy
+            post_deploy=post_deploy,
         )
         assert migration == self.migration
 
@@ -55,7 +55,7 @@ class DiffFixture(pydantic.BaseModel):
             mdb.create_schema()
             mdb.cur.execute(f"CREATE SCHEMA {schema_name}")
             mdb.cur.execute(begin_sql)
-            i_first = models.PhaseIndex(0, b'', b'', True, 0, 0)
+            i_first = models.PhaseIndex(0, b"", b"", True, 0, 0)
             phase_tuples = list(self.migration.phases(i_first))
             if forward:
                 for index, change, phase in phase_tuples:
@@ -94,9 +94,9 @@ def fixtures() -> Iterator[DiffFixture]:
             yield fx.swap()
 
 
-@pytest.mark.parametrize("case", [
-    f for f in fixtures() if f.test_codegen
-], ids=DiffFixture.id_fn)
+@pytest.mark.parametrize(
+    "case", [f for f in fixtures() if f.test_codegen], ids=DiffFixture.id_fn
+)
 def test_codegen(control_conn: Any, case: DiffFixture) -> None:
     if case.test == "FOREIGN KEY constraint reversed":
         pytest.xfail("Pyrseas bug with fkey columns")

@@ -1,6 +1,7 @@
 from . import Context, text
 from .. import models
 
+
 def up(ctx: Context) -> None:
     repo = ctx.repo()
     db = ctx.db()

@@ -17,16 +17,20 @@ from typing import List, Union, Optional, Dict, Any, Iterator, Tuple, TYPE_CHECK
 if TYPE_CHECKING:
     from . import changes
 
+
 def get_revision_number(filename: str) -> int:
     return int(os.path.basename(filename).split("-", 1)[0])
 
+
 def load_yaml(fname: str) -> Dict[Any, Any]:
     with open(fname) as f:
-        return yaml.safe_load(f.read()) # type: ignore
+        return yaml.safe_load(f.read())  # type: ignore
+
 
 def sibling(fname: str, path: str) -> str:
     return os.path.join(os.path.dirname(fname), path)
-    
+
+
 @dataclass
 class Repo:
     config_path: str
@@ -36,9 +40,7 @@ class Repo:
     @staticmethod
     def parse(config_path: str) -> Repo:
         config = RepoConfig.parse_obj(load_yaml(config_path))
-        revisions = Repo.parse_revlist(
-            sibling(config_path, config.migrations_dir)
-        )
+        revisions = Repo.parse_revlist(sibling(config_path, config.migrations_dir))
         return Repo(config_path, config, revisions)
 
     @staticmethod
@@ -55,7 +57,9 @@ class Repo:
     def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
         yield from sorted(self.revisions.items())
 
-    def next_phases(self, index: Optional[PhaseIndex]) -> Iterator[IndexRevisionChangePhase]:
+    def next_phases(
+        self, index: Optional[PhaseIndex]
+    ) -> Iterator[IndexRevisionChangePhase]:
         """Yields each remaining phase that should be run after the given index.
 
         If the index refers to a migration not in the repo, raises MigrationNotFound.
@@ -101,13 +105,13 @@ class Revision:
         # FIXME: hack so that we can create a partial revision in order to serialize a
         # migration...
         if not os.path.exists(self.migration_filename):
-            return ''
+            return ""
         with open(self.migration_filename) as f:
             return f.read()
 
     @property
     def migration_hash(self) -> bytes:
-        return hashlib.sha256(self._migration_text.encode('ascii')).digest()
+        return hashlib.sha256(self._migration_text.encode("ascii")).digest()
 
     @property
     def migration(self) -> Migration:
@@ -124,13 +128,13 @@ class Revision:
         # FIXME: hack so that we can create a partial revision in order to serialize a
         # migration...
         if not os.path.exists(self.migration_filename):
-            return ''
+            return ""
         with open(self.schema_filename) as f:
             return f.read()
-        
+
     @property
     def schema_hash(self) -> bytes:
-        return hashlib.sha256(self._schema_text.encode('ascii')).digest()
+        return hashlib.sha256(self._schema_text.encode("ascii")).digest()
 
     @staticmethod
     def parse(filename: str) -> Revision:
@@ -156,7 +160,7 @@ class Revision:
             schema_hash=self.schema_hash,
             pre_deploy=True,
             change=0,
-            phase=0
+            phase=0,
         )
 
 
@@ -179,21 +183,16 @@ class PhaseIndex:
 
     @property
     def sortkey(self) -> Tuple[int, int, int, int]:
-        return (
-            self.revision,
-            0 if self.pre_deploy else 1,
-            self.change,
-            self.phase
-        )
+        return (self.revision, 0 if self.pre_deploy else 1, self.change, self.phase)
 
     def __gt__(self, other: PhaseIndex) -> bool:
         return self.sortkey > other.sortkey
+
 
 IndexChangePhase = Tuple[PhaseIndex, "changes.Change", "changes.Phase"]
 IndexRevisionChangePhase = Tuple[
     PhaseIndex, Revision, "changes.Change", "changes.Phase"
 ]
-
 
 
 @dataclass
@@ -219,9 +218,13 @@ class Migration:
                 yield new_index, change, phase
         for i_change, change in enumerate(self.post_deploy):
             for i_phase, phase in enumerate(change.inner.phases):
-                new_index = dataclasses.replace(index, pre_deploy=False, change=i_change, phase=i_phase)
+                new_index = dataclasses.replace(
+                    index, pre_deploy=False, change=i_change, phase=i_phase
+                )
                 yield new_index, change, phase
 
+
 from . import changes
+
 for s in BaseModel.__subclasses__():
     s.update_forward_refs()
