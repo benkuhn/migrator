@@ -1,6 +1,7 @@
 import contextlib
 import os
 from collections import Iterator
+from typing import Any
 
 import psycopg2
 import pytest
@@ -12,7 +13,7 @@ from tests.fakes import FakeUserInterface
 
 
 @pytest.fixture(scope="session")
-def control_conn():
+def control_conn() -> Any:
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     conn.set_session(autocommit=True)
     return conn
@@ -25,7 +26,7 @@ DROP SCHEMA IF EXISTS {SCHEMA_NAME} CASCADE;
 """
 
 @pytest.fixture
-def test_db_url(control_conn) -> str:
+def test_db_url(control_conn: Any) -> Iterator[str]:
     try:
         yield os.environ["DATABASE_URL"]
     finally:
@@ -34,7 +35,7 @@ def test_db_url(control_conn) -> str:
 
 
 @pytest.fixture
-def ctx(test_db_url: str) -> Context:
+def ctx(test_db_url: str) -> Iterator[Context]:
     old_dir = os.getcwd()
     os.chdir("test")
     try:

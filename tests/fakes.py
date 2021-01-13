@@ -1,11 +1,11 @@
 import hashlib
 import os
 import tempfile
-from typing import Any, NoReturn, TextIO
+from typing import Any, NoReturn, TextIO, List, Tuple, Dict, cast
 
 import psycopg2
 
-from migrator.commands import UserInterface, text
+from migrator.commands import UserInterface, text, Context
 from migrator import db
 
 
@@ -15,8 +15,8 @@ class FakeExit(Exception):
 
 class FakeUserInterface(UserInterface):
     def __init__(self) -> None:
-        self.outputs = []
-        self.responses = {}
+        self.outputs: List[Tuple[Tuple[Any, ...], Dict[str, Any]]] = []
+        self.responses: Dict[str, List[str]] = {}
         self.tmpdir = tempfile.TemporaryDirectory()
 
     def respond_to(self, message: str, response: str) -> None:
@@ -39,7 +39,7 @@ class FakeUserInterface(UserInterface):
         dir = os.path.join(self.tmpdir.name, os.path.dirname(filename))
         os.makedirs(dir, exist_ok=True)
         print(f"open {filename}")
-        return open(os.path.join(dir, os.path.basename(filename)), mode)
+        return cast(TextIO, open(os.path.join(dir, os.path.basename(filename)), mode))
 
     def close(self) -> None:
         self.tmpdir.cleanup()
@@ -74,3 +74,7 @@ def schema_db_url(conn: Any, schema_sql: str) -> str:
                 conn.rollback()
                 cur.execute(f"DROP DATABASE {db_name}")
                 raise
+
+class FakeContext(Context):
+    # stub to help tests typecheck
+    ui: FakeUserInterface

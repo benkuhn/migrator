@@ -21,7 +21,7 @@ Riskiest parts:
 
 Dev setup
 
-- [ ] mypy
+- [x] mypy
 - [ ] CI
 - [ ] DB constraints
 

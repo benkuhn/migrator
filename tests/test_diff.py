@@ -1,4 +1,7 @@
-from typing import Optional, Union, Literal, Iterator
+from __future__ import annotations
+
+from typing import Optional, Union, Iterator, Any
+from typing_extensions import Literal
 
 import pytest
 import yaml
@@ -18,7 +21,11 @@ class DiffFixture(pydantic.BaseModel):
     test_codegen: bool = True
     test_execution: bool = True
 
-    def swap(self):
+    @staticmethod
+    def id_fn(fx: DiffFixture) -> str:
+        return fx.test
+
+    def swap(self) -> DiffFixture:
         return DiffFixture(
             test=self.test + " reversed",
             before=self.after,
@@ -27,7 +34,7 @@ class DiffFixture(pydantic.BaseModel):
             reverse=self.migration
         )
 
-    def run_codegen(self, control_conn) -> None:
+    def run_codegen(self, control_conn: Any) -> None:
         before_url = schema_db_url(control_conn, self.before)
         after_url = schema_db_url(control_conn, self.after)
         pre_deploy, post_deploy = diff.diff(before_url, after_url)
@@ -79,26 +86,28 @@ class DiffFixture(pydantic.BaseModel):
 
 def fixtures() -> Iterator[DiffFixture]:
     with open("fixtures/diff/index.yml") as f:
-        fixtures = [DiffFixture(**obj) for obj in yaml.safe_load(f.read())]
+        fxs = [DiffFixture(**obj) for obj in yaml.safe_load(f.read())]
 
-    for f in fixtures:
-        yield f
-        if f.reverse:
-            yield f.swap()
+    for fx in fxs:
+        yield fx
+        if fx.reverse:
+            yield fx.swap()
 
 
-@pytest.mark.parametrize("case", [f for f in fixtures() if f.test_codegen], ids=lambda x: x.test)
-def test_codegen(control_conn, case):
+@pytest.mark.parametrize("case", [
+    f for f in fixtures() if f.test_codegen
+], ids=DiffFixture.id_fn)
+def test_codegen(control_conn: Any, case: DiffFixture) -> None:
     if case.test == "FOREIGN KEY constraint reversed":
         pytest.xfail("Pyrseas bug with fkey columns")
     case.run_codegen(control_conn)
 
 
-@pytest.mark.parametrize("case", list(fixtures()), ids=lambda x: x.test)
-def test_exec(test_db_url, case):
+@pytest.mark.parametrize("case", list(fixtures()), ids=DiffFixture.id_fn)
+def test_exec(test_db_url: str, case: DiffFixture) -> None:
     case.run_execution(db.Database(test_db_url))
 
 
-@pytest.mark.parametrize("case", list(fixtures()), ids=lambda x: x.test)
-def test_revert(test_db_url, case):
+@pytest.mark.parametrize("case", list(fixtures()), ids=DiffFixture.id_fn)
+def test_revert(test_db_url: str, case: DiffFixture) -> None:
     case.run_execution(db.Database(test_db_url), False)
