@@ -101,7 +101,7 @@ class Revision:
     migration_filename: str
 
     @property
-    def _migration_text(self) -> str:
+    def migration_text(self) -> str:
         # FIXME: hack so that we can create a partial revision in order to serialize a
         # migration...
         if not os.path.exists(self.migration_filename):
@@ -111,7 +111,7 @@ class Revision:
 
     @property
     def migration_hash(self) -> bytes:
-        return hashlib.sha256(self._migration_text.encode("ascii")).digest()
+        return hashlib.sha256(self.migration_text.encode("ascii")).digest()
 
     @property
     def migration(self) -> Migration:
@@ -184,6 +184,10 @@ class PhaseIndex:
     @property
     def sortkey(self) -> Tuple[int, int, int, int]:
         return (self.revision, 0 if self.pre_deploy else 1, self.change, self.phase)
+
+    @property
+    def is_first_for_revision(self) -> bool:
+        return self.pre_deploy and self.change == 0 and self.phase == 0
 
     def __gt__(self, other: PhaseIndex) -> bool:
         return self.sortkey > other.sortkey

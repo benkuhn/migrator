@@ -1,4 +1,5 @@
-from migrator.commands import Context, text, revision
+from migrator.commands import text, revision
+from migrator.logic import Context
 
 EXPECTED_MIGRATION = """message: a new revision
 post_deploy:

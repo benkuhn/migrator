@@ -1,4 +1,5 @@
-from migrator.commands import Context, text, up
+from migrator.commands import text, up
+from migrator.logic import Context
 from tests.fakes import FakeContext
 
 

@@ -1,4 +1,5 @@
-from . import Context, text
+from . import text
+from ..logic import Context
 from .. import models
 
 

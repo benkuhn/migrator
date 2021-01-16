@@ -1,17 +1,17 @@
-from . import Context, text
+from . import text
 from .. import models
+from ..logic import Context
+from ..logic.migrate import upgrade
+from ..logic.init import init
 
 
 def up(ctx: Context) -> None:
-    repo = ctx.repo()
     db = ctx.db()
     if not db.is_set_up():
         if not ctx.ui.ask_yes_no(text.ASK_TO_INITIALIZE_DB):
             ctx.ui.die("Can't do anything with an uninitialized db.")
         # TODO factor this into initdb maybe?
-        db.create_schema()
+        init(ctx)
 
-    last = db.get_last_finished()
-    for tuple in repo.next_phases(None if last is None else last.index):
-        index, migration, change, phase = tuple
-        phase.run(db, index)
+    # TODO check that disk + db migrations agree
+    upgrade(ctx)

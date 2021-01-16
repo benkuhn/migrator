@@ -28,9 +28,10 @@ Dev setup
 
 Logic
 
-- [ ] progress reporting
+- [x] insert migrations
 - [ ] init script + shim schema creation
 - [ ] downgrades + migration-in-db
+- [ ] progress reporting
 - [ ] step idempotency tests
 - [ ] safety checks + transaction timeouts
 - [ ] rebase

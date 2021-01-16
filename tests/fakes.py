@@ -5,7 +5,8 @@ from typing import Any, NoReturn, TextIO, List, Tuple, Dict, cast
 
 import psycopg2
 
-from migrator.commands import UserInterface, text, Context
+from migrator.commands import text
+from migrator.logic import Context, UserInterface
 from migrator import db
 
 

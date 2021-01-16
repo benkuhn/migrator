@@ -84,9 +84,9 @@ class Database:
         result = self.cur.fetchall()
         return result
 
-    def _fetch(self, query: str, **kwargs: Any) -> List[Any]:
+    def _fetch(self, query: str, args: Sequence[Any] = (), **kwargs: Any) -> List[Any]:
         assert not self.in_tx
-        return self._fetch_inner(query, kwargs)
+        return self._fetch_inner(query, args or kwargs)
 
     def _fetch_tx(
         self, query: str, args: Sequence[Any] = (), **kwargs: Any
@@ -208,6 +208,26 @@ class Database:
     def temp_db_url(self) -> Iterator[str]:
         with temp_db_url(self.conn) as url:
             yield url
+
+    def upsert(self, revision: models.Revision) -> None:
+        MIGRATION_FIELDS = "revision, migration_hash, schema_hash, file, is_deleted"
+        result = self._fetch(
+            f"""
+        INSERT INTO {SCHEMA_NAME}.migrations
+            (revision, migration_hash, schema_hash, file, is_deleted)
+        VALUES (%s, %s, %s, %s, TRUE)
+        ON CONFLICT DO NOTHING
+        RETURNING {MIGRATION_FIELDS}
+        """,
+            (
+                revision.number,
+                revision.migration_hash,
+                revision.schema_hash,
+                revision.migration_text,
+            ),
+        )
+        # Sanity check that the migration is the same on upsert
+        assert result[0][3] == revision.migration_text
 
 
 @contextlib.contextmanager

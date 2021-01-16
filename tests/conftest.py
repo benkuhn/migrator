@@ -6,7 +6,7 @@ from typing import Any
 import psycopg2
 import pytest
 
-from migrator.commands import Context
+from migrator.logic import Context
 from migrator.db import temp_db_url
 from migrator.constants import SCHEMA_NAME
 from tests.fakes import FakeUserInterface

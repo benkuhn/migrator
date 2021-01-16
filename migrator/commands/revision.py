@@ -8,7 +8,8 @@ from contextlib import contextmanager
 import psycopg2
 import yaml
 
-from . import Context, text
+from . import text
+from ..logic import Context
 from .. import models, diff, db
 
 
