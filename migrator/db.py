@@ -5,7 +5,7 @@ import os
 import random
 import re
 
-from .constants import SCHEMA_NAME
+from .constants import SCHEMA_NAME, SHIM_SCHEMA_FORMAT
 from contextlib import contextmanager
 from typing import Any, List, Iterator, Optional, TypeVar, Iterable, Sequence
 
@@ -228,6 +228,14 @@ class Database:
         )
         # Sanity check that the migration is the same on upsert
         assert result[0][3] == revision.migration_text
+
+    def create_shim_schema(self, revision: int) -> None:
+        shim_schema = SHIM_SCHEMA_FORMAT % revision
+        self.cur.execute(f"CREATE SCHEMA IF NOT EXISTS {shim_schema}")
+
+    def drop_shim_schema(self, revision: int) -> None:
+        shim_schema = SHIM_SCHEMA_FORMAT % revision
+        self.cur.execute(f"DROP SCHEMA IF EXISTS {shim_schema}")
 
 
 @contextlib.contextmanager

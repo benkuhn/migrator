@@ -3,7 +3,7 @@ from migrator.logic import migrate, init
 from tests.fakes import FakeContext
 
 
-def test_up(ctx: FakeContext) -> None:
+def test_upgrade(ctx: FakeContext) -> None:
     init.init_db(ctx)
     migrate.upgrade(ctx)
     db = ctx.db()

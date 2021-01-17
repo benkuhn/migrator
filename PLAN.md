@@ -29,7 +29,8 @@ Dev setup
 Logic
 
 - [x] insert migrations
-- [ ] init script + shim schema creation
+- [x] init script
+- [x] shim schema creation
 - [ ] downgrades + migration-in-db
 - [ ] progress reporting
 - [ ] step idempotency tests

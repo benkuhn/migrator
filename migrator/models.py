@@ -164,6 +164,10 @@ class Revision:
             phase=0,
         )
 
+    @property
+    def last_index(self) -> PhaseIndex:
+        return next(reversed([i[0] for i in self.migration.phases(self.first_index)]))
+
 
 @dataclass
 class PhaseIndex:
