@@ -10,7 +10,7 @@ def upgrade(ctx: Context) -> None:
         index, revision, change, phase = tup
         if index == revision.first_index:
             db.create_shim_schema(revision.number)
-            db.upsert(revision)
+            db.upsert_revision(revision)
         phase.run(db, index)
         if index == revision.last_index:
             db.drop_shim_schema(revision.number)

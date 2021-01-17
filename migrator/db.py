@@ -21,6 +21,7 @@ from typing import (
     Type,
     Callable,
     cast,
+    Dict,
 )
 
 T = TypeVar("T")
@@ -33,16 +34,17 @@ from . import models
 SCHEMA_DDL = f"""
 CREATE SCHEMA {SCHEMA_NAME};
 
-CREATE TABLE {SCHEMA_NAME}.migrations (
+CREATE TABLE {SCHEMA_NAME}.revisions (
   revision INT NOT NULL,
   migration_hash BYTEA NOT NULL,
   schema_hash BYTEA NOT NULL,
-  file TEXT NOT NULL,
+  migration_text TEXT NOT NULL,
+  schema_text TEXT NOT NULL,
   is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (revision, migration_hash, schema_hash)
 );
 
-CREATE UNIQUE INDEX migration_unique_revision ON {SCHEMA_NAME}.migrations (revision)
+CREATE UNIQUE INDEX migration_unique_revision ON {SCHEMA_NAME}.revisions (revision)
     WHERE NOT is_deleted;
 
 CREATE TABLE {SCHEMA_NAME}.migration_audit (
@@ -59,7 +61,7 @@ CREATE TABLE {SCHEMA_NAME}.migration_audit (
   revert_finished_at TIMESTAMP WITH TIME ZONE,
   CHECK (revert_started_at IS NULL OR finished_at IS NOT NULL),
   CHECK (revert_finished_at IS NULL or revert_started_at IS NOT NULL)
---  FOREIGN KEY (revision, migration_hash, schema_hash) REFERENCES {SCHEMA_NAME}.migrations
+--  FOREIGN KEY (revision, migration_hash, schema_hash) REFERENCES {SCHEMA_NAME}.revisions
 --    (revision, migration_hash, schema_hash)
 );
 
@@ -122,6 +124,30 @@ class AuditMapper(Mapper[models.MigrationAudit, models.PhaseIndex]):
     @classmethod
     def obj_to_insertable(cls, obj: models.PhaseIndex) -> Sequence[Any]:
         return dataclasses.astuple(obj)
+
+
+class RevisionMapper(Mapper[models.DbRevision, models.Revision]):
+    insert_fields = [
+        "revision",
+        "migration_hash",
+        "schema_hash",
+        "migration_text",
+        "schema_text",
+    ]
+    fields = insert_fields + ["is_deleted"]
+    table = "revisions"
+
+    @classmethod
+    def map(cls, row: Sequence[Any]) -> models.DbRevision:
+        rev, mig_h, sch_h, mig_t, sch_t, is_del = row
+        result = models.DbRevision(rev, mig_t, sch_t, is_del)
+        assert result.migration_hash == bytes(mig_h)
+        assert result.schema_hash == bytes(sch_h)
+        return result
+
+    @classmethod
+    def obj_to_insertable(cls, obj: models.Revision) -> Sequence[Any]:
+        return [obj.number] + [getattr(obj, f) for f in cls.insert_fields[1:]]
 
 
 class Results(List[T]):
@@ -278,26 +304,12 @@ class Database:
         with temp_db_url(self.conn) as url:
             yield url
 
-    def upsert(self, revision: models.Revision) -> None:
-        MIGRATION_FIELDS = "revision, migration_hash, schema_hash, file, is_deleted"
-        args = (
-            revision.number,
-            revision.migration_hash,
-            revision.schema_hash,
-            revision.migration_text,
-        )
-        result = self._fetch(
-            f"""
-        INSERT INTO {SCHEMA_NAME}.migrations
-            (revision, migration_hash, schema_hash, file, is_deleted)
-        VALUES (%s, %s, %s, %s, TRUE)
-        ON CONFLICT DO NOTHING
-        RETURNING {MIGRATION_FIELDS}
-        """,
-            args,
-        )
-        # Sanity check that the migration is the same on upsert
-        assert result[0][3] == revision.migration_text
+    def upsert_revision(self, revision: models.Revision) -> models.DbRevision:
+        return self.insert(RevisionMapper, revision, "ON CONFLICT DO NOTHING")
+
+    def get_revisions(self) -> Dict[int, models.Revision]:
+        results = self.select(RevisionMapper, "WHERE NOT is_deleted")
+        return {rev.number: rev for rev in results}
 
     def create_shim_schema(self, revision: int) -> None:
         shim_schema = SHIM_SCHEMA_FORMAT % revision

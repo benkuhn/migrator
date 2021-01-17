@@ -190,6 +190,7 @@ class DbRevision(Revision):
     number: int
     migration_text: str
     schema_text: str
+    is_deleted: bool
 
     @property
     def migration_filename(self) -> str:  # type: ignore
