@@ -19,6 +19,7 @@ from typing import (
     Dict,
     Generic,
     Tuple,
+    Type,
 )
 
 T = TypeVar("T")
@@ -76,8 +77,9 @@ PHASE_INDEX_FIELDS = "revision, migration_hash, schema_hash, pre_deploy, change,
 
 
 class Mapper(abc.ABC, Generic[T]):
-    pk_fields: List[str]
+    non_insert_fields: List[str]
     fields: List[str]
+    table: str
 
     @classmethod
     @abc.abstractmethod
@@ -91,14 +93,16 @@ class Mapper(abc.ABC, Generic[T]):
 
     @classmethod
     def columns(cls) -> str:
-        return ", ".join(cls.pk_fields + cls.fields)
+        return ", ".join(cls.non_insert_fields + cls.fields)
 
 
 class AuditMapper(Mapper[models.MigrationAudit]):
-    pk_fields = ["id"]
     my_fields = list(f.name for f in dataclasses.fields(models.MigrationAudit))[1:-1]
     index_fields = list(f.name for f in dataclasses.fields(models.PhaseIndex))
+
+    non_insert_fields = ["id"]
     fields = my_fields + index_fields
+    table = "migration_audit"
 
     @classmethod
     def row_to_obj(cls, row: Sequence[Any]) -> models.MigrationAudit:
@@ -158,19 +162,30 @@ class Database:
         with self.tx():
             self.cur.execute(SCHEMA_DDL)
 
-    def get_last_finished(self) -> Optional[models.MigrationAudit]:
+    def select(self, mapper: Type[Mapper[T]], rest: str) -> List[T]:
         result = self._fetch(
             f"""
-        SELECT {AuditMapper.columns()}
-        FROM {SCHEMA_NAME}.migration_audit
-        WHERE finished_at IS NOT NULL
-        AND revert_finished_at IS NOT NULL
-        ORDER BY id DESC
-        LIMIT 1"""
+        SELECT {mapper.columns()}
+        FROM {SCHEMA_NAME}.{mapper.table}
+        {rest}
+        """
         )
-        if len(result) == 0:
-            return None
-        return AuditMapper.row_to_obj(result[0])
+        return [mapper.row_to_obj(row) for row in result]
+
+    @staticmethod
+    def first(objs: List[T]) -> Optional[T]:
+        return objs[0] if objs else None
+
+    def get_last_finished(self) -> Optional[models.MigrationAudit]:
+        return self.first(
+            self.select(
+                AuditMapper,
+                """
+            WHERE finished_at IS NOT NULL AND revert_finished_at IS NOT NULL
+            ORDER BY id DESC LIMIT 1
+            """,
+            )
+        )
 
     def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
         result = self._fetch_tx(
