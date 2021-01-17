@@ -171,13 +171,16 @@ class Database:
         with self.tx():
             self.cur.execute(SCHEMA_DDL)
 
-    def select(self, mapper: Type[Mapper[T, Any]], rest: str) -> List[T]:
+    def select(
+        self, mapper: Type[Mapper[T, Any]], rest: str, args: Any = None
+    ) -> List[T]:
         result = self._fetch(
             f"""
         SELECT {mapper.columns()}
         FROM {SCHEMA_NAME}.{mapper.table}
         {rest}
-        """
+        """,
+            args,
         )
         return [mapper.row_to_obj(row) for row in result]
 
@@ -192,6 +195,20 @@ class Database:
             mapper.obj_to_insertable(obj),
         )
         return self.one([mapper.row_to_obj(row) for row in result])
+
+    def update(
+        self, mapper: Type[Mapper[T, Any]], set_where: str, args: Sequence[Any]
+    ) -> List[T]:
+        # TODO: remove transactional assertion
+        result = self._fetch_tx(
+            f"""
+        UPDATE {SCHEMA_NAME}.{mapper.table}
+        {set_where}
+        RETURNING {mapper.columns()}
+        """,
+            args,
+        )
+        return [mapper.row_to_obj(row) for row in result]
 
     @staticmethod
     def first(objs: List[T]) -> Optional[T]:
@@ -217,20 +234,18 @@ class Database:
         return self.insert(AuditMapper, index)
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
-        result = self._fetch_tx(
-            f"""
-        UPDATE {SCHEMA_NAME}.migration_audit
-            SET finished_at = now()
-        WHERE id = %s AND finished_at IS NULL
-        RETURNING {AuditMapper.columns()}""",
-            (audit.id,),
+        return self.one(
+            self.update(
+                AuditMapper,
+                "SET finished_at = now() WHERE id = %s AND finished_at IS NULL",
+                (audit.id,),
+            )
         )
-        return AuditMapper.row_to_obj(result[0])
 
     def get_audit(self, index: models.PhaseIndex) -> models.MigrationAudit:
-        result = self._fetch_tx(
+        result = self.select(
+            AuditMapper,
             f"""
-        SELECT {AuditMapper.columns()} FROM {SCHEMA_NAME}.migration_audit
         WHERE revision = %(revision)s
         AND migration_hash = %(migration_hash)s
         AND schema_hash = %(schema_hash)s
@@ -239,38 +254,31 @@ class Database:
         AND change = %(change)s
         ORDER BY id DESC LIMIT 1
         """,
-            **dataclasses.asdict(index),
+            dataclasses.asdict(index),
         )
-        return AuditMapper.row_to_obj(result[0])
+        return self.one(result)
 
     def audit_phase_revert_start(
         self, audit: models.MigrationAudit
     ) -> models.MigrationAudit:
-        result = self._fetch_tx(
-            f"""
-        UPDATE {SCHEMA_NAME}.migration_audit
-            SET revert_started_at = now()
-        WHERE id = %s AND revert_started_at IS NULL
-        RETURNING {AuditMapper.columns()}""",
-            (audit.id,),
+        return self.one(
+            self.update(
+                AuditMapper,
+                "SET revert_started_at = now() WHERE id = %s AND revert_started_at IS NULL",
+                (audit.id,),
+            )
         )
-        if not result:
-            x = 1
-            pass
-        return AuditMapper.row_to_obj(result[0])
 
     def audit_phase_revert_end(
         self, audit: models.MigrationAudit
     ) -> models.MigrationAudit:
-        result = self._fetch_tx(
-            f"""
-        UPDATE {SCHEMA_NAME}.migration_audit
-            SET revert_finished_at = now()
-        WHERE id = %s AND revert_finished_at IS NULL
-        RETURNING {AuditMapper.columns()}""",
-            (audit.id,),
+        return self.one(
+            self.update(
+                AuditMapper,
+                "SET revert_finished_at = now() WHERE id = %s AND revert_finished_at IS NULL",
+                (audit.id,),
+            )
         )
-        return AuditMapper.row_to_obj(result[0])
 
     def close(self) -> None:
         self.conn.close()
