@@ -8,7 +8,7 @@ import pytest
 
 from migrator.logic import Context
 from migrator.db import temp_db_url
-from migrator.constants import SCHEMA_NAME
+from migrator.constants import SCHEMA_NAME, SHIM_SCHEMA_FORMAT
 from tests.fakes import FakeUserInterface
 
 
@@ -23,6 +23,8 @@ RESET_DDL = f"""
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 DROP SCHEMA IF EXISTS {SCHEMA_NAME} CASCADE; 
+DROP SCHEMA IF EXISTS {SHIM_SCHEMA_FORMAT % 1} CASCADE; 
+DROP SCHEMA IF EXISTS {SHIM_SCHEMA_FORMAT % 2} CASCADE; 
 """
 
 

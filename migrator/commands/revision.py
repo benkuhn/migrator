@@ -13,7 +13,6 @@ from ..constants import SHIM_SCHEMA_FORMAT, SCHEMA_NAME
 from ..logic import Context
 from .. import models, diff, db
 
-
 MIGRATION_TEMPLATE = """
 message: {message}
 pre_deploy:
@@ -38,14 +37,13 @@ def format_incantation(rev: models.Revision) -> str:
     VALUES (
       pg_backend_pid(),
       {rev.number},
-      decode({rev.schema_hash.hex()}, 'hex'),
+      decode('{rev.schema_hash.hex()}', 'hex'),
       (select backend_start from pg_stat_activity where pid = pg_backend_pid())
     )
-    ON CONFLICT DO UPDATE SET
+    ON CONFLICT (pid) DO UPDATE SET
       revision = excluded.revision,
       schema_hash = excluded.schema_hash,
-      backend_start = excluded.backend_start
-    );
+      backend_start = excluded.backend_start;
     """
 
 
@@ -74,19 +72,15 @@ def revision(ctx: Context, message: str) -> None:
     ) as new_url:
         pre_deploy, post_deploy = diff.diff(old_url, new_url)
 
-    # FIXME: hack to make parent references work :( To fix, probably refactor to use
-    # visitor pattern so we don't need parents or something?
+    migration = models.Migration(
+        message=message, pre_deploy=pre_deploy, post_deploy=post_deploy
+    )
     with ctx.ui.open(migration_path, "w") as f:
-        f.write("")
+        f.write(yaml.safe_dump(migration.dict(exclude_defaults=True), sort_keys=False))
 
-    migration = {
-        "message": message,
-        "pre_deploy": [step.dict(exclude_defaults=True) for step in pre_deploy],
-        "post_deploy": [step.dict(exclude_defaults=True) for step in post_deploy],
-    }
-
-    with ctx.ui.open(migration_path, "w") as f:
-        f.write(yaml.safe_dump(migration, sort_keys=False))
+    rev = models.Revision(number=num, migration_filename=migration_path)
+    with ctx.ui.open(repo.config.incantation_path, "w") as f:
+        f.write(format_incantation(rev))
 
 
 @contextmanager

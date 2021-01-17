@@ -210,11 +210,10 @@ class MigrationAudit:
     index: PhaseIndex
 
 
-@pydantic.dataclasses.dataclass
-class Migration:
+class Migration(BaseModel):
     message: str
-    pre_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
-    post_deploy: List[changes.Change] = dataclasses.field(default_factory=list)
+    pre_deploy: List[changes.Change] = []
+    post_deploy: List[changes.Change] = []
 
     def phases(self, index: PhaseIndex) -> Iterator[IndexChangePhase]:
         for i_change, change in enumerate(self.pre_deploy):

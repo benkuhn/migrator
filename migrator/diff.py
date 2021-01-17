@@ -87,7 +87,8 @@ def ddlify(stmts: List[str]) -> YamlMultiline:
 class YamlMultiline(str):
     @staticmethod
     def bar_presenter(dumper: yaml.Dumper, data: str) -> str:
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+        style = "|" if "\n" in data else None
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
 
 yaml.add_representer(YamlMultiline, YamlMultiline.bar_presenter, Dumper=yaml.SafeDumper)

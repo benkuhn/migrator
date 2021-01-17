@@ -1,15 +1,18 @@
+import psycopg2.errors
+import pytest
+
+from migrator import models
 from migrator.commands import text, revision
+from migrator.constants import SHIM_SCHEMA_FORMAT
 from migrator.logic import Context
 
 EXPECTED_MIGRATION = """message: a new revision
 post_deploy:
 - run_ddl:
-    down: ALTER TABLE public.users DROP COLUMN name;
-    up: ''
-pre_deploy:
-- run_ddl:
-    down: ''
-    up: "ALTER TABLE public.users\\n    ADD COLUMN name text NOT NULL;"
+    up: ALTER TABLE public.users DROP COLUMN email;
+    down: |-
+      ALTER TABLE public.users
+          ADD COLUMN email text NOT NULL;
 """
 
 
@@ -25,3 +28,32 @@ def test_revision(ctx: Context) -> None:
         text = f.read()
         assert text == EXPECTED_MIGRATION
     # FIXME: assert something about UI output
+
+
+def test_incantation(ctx: Context) -> None:
+    incantation = revision.format_incantation(ctx.repo().revisions[1])
+    shim_schema = SHIM_SCHEMA_FORMAT % 1
+    next_shim_schema = SHIM_SCHEMA_FORMAT % 2
+    db = ctx.db()
+    db.cur.execute(
+        f"""
+    CREATE SCHEMA {shim_schema};
+    CREATE SCHEMA {next_shim_schema};
+    CREATE TABLE {shim_schema}.foo (id INT);
+    INSERT INTO {shim_schema}.foo VALUES (1);
+    CREATE TABLE {next_shim_schema}.foo (id INT);
+    INSERT INTO {next_shim_schema}.foo VALUES (2);
+    """
+    )
+    test_shim = "SELECT id FROM foo;"
+    db.create_schema()
+    with pytest.raises(psycopg2.errors.UndefinedTable):
+        db._fetch(test_shim)
+    db.cur.execute(incantation)
+    # TODO replace with ORM
+    assert db._fetch("SELECT count(*) FROM migrator_status.connections")[0][0] == 1
+    assert db._fetch(test_shim)[0][0] == 1
+    # Test that running incantation again upserts
+    db.cur.execute(incantation)
+    # TODO replace with ORM
+    assert db._fetch("SELECT count(*) FROM migrator_status.connections")[0][0] == 1
