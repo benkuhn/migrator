@@ -247,8 +247,7 @@ class MigrationAudit:
     id: int
     started_at: datetime
     finished_at: Optional[datetime]
-    revert_started_at: Optional[datetime]
-    revert_finished_at: Optional[datetime]
+    is_revert: bool
     index: PhaseIndex
 
 

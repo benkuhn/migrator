@@ -32,7 +32,10 @@ Logic
 - [x] init script
 - [x] shim schema creation
 - [x] downgrades + migration-in-db
-- [ ] downgrades with no matching upgrade?!
+- [x] figure out how connections table will work w/ pgbouncer
+- [x] downgrades with no matching upgrade--split migration_audit table
+- [ ] correctly determine where to start if last op was a revert
+- [ ] proof of concept of username approach
 - [ ] progress reporting
 - [ ] step idempotency tests
 - [ ] safety checks + transaction timeouts

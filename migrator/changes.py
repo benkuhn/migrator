@@ -74,10 +74,9 @@ class TransactionalPhase(PhaseDirection):
 
     def revert(self, db: db.Database, index: models.PhaseIndex) -> None:
         with db.tx():
-            audit = db.get_audit(index)
-            audit = db.audit_phase_revert_start(audit)
+            audit = db.audit_phase_start(index, is_revert=True)
             self.run_inner(db, index)
-            db.audit_phase_revert_end(audit)
+            db.audit_phase_end(audit)
 
     @abc.abstractmethod
     def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
@@ -100,11 +99,10 @@ class IdempotentPhase(PhaseDirection):
     def revert(self, db: db.Database, index: models.PhaseIndex) -> None:
         with db.tx():
             # FIXME: what happens if we already started?
-            audit = db.get_audit(index)
-            audit = db.audit_phase_revert_start(audit)
+            audit = db.audit_phase_start(index, is_revert=True)
         self.run_inner(db)
         with db.tx():
-            db.audit_phase_revert_end(audit)
+            db.audit_phase_end(audit)
 
 
 @dataclasses.dataclass

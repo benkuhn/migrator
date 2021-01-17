@@ -22,6 +22,7 @@ from typing import (
     Callable,
     cast,
     Dict,
+    Tuple,
 )
 
 import psycopg2
@@ -55,19 +56,17 @@ CREATE TABLE {SCHEMA_NAME}.migration_audit (
   pre_deploy BOOL NOT NULL,
   change INT NOT NULL,
   phase INT NOT NULL,
+  is_revert BOOL NOT NULL,
   started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   finished_at TIMESTAMP WITH TIME ZONE,
-  revert_started_at TIMESTAMP WITH TIME ZONE,
-  revert_finished_at TIMESTAMP WITH TIME ZONE,
-  CHECK (revert_started_at IS NULL OR finished_at IS NOT NULL),
-  CHECK (revert_finished_at IS NULL or revert_started_at IS NOT NULL)
---  FOREIGN KEY (revision, migration_hash, schema_hash) REFERENCES {SCHEMA_NAME}.revisions
---    (revision, migration_hash, schema_hash)
+  CHECK (finished_at IS NULL OR started_at IS NOT NULL)
+  -- TODO: these break the individual step tests bc we don't sync migrations
+  -- , FOREIGN KEY (revision, migration_hash, schema_hash) REFERENCES {SCHEMA_NAME}.revisions
+    -- (revision, migration_hash, schema_hash)
 );
 
-CREATE UNIQUE INDEX migration_audit_unique ON {SCHEMA_NAME}.migration_audit ((1))
-  WHERE (finished_at IS NULL OR (
-    revert_started_at IS NOT NULL AND revert_finished_at IS NULL));
+CREATE UNIQUE INDEX migration_audit_one_unfinished ON {SCHEMA_NAME}.migration_audit
+  ((1)) WHERE started_at IS NOT NULL AND finished_at IS NULL;
 
 CREATE TABLE {SCHEMA_NAME}.connections (
   pid INT NOT NULL PRIMARY KEY,
@@ -90,7 +89,7 @@ class Mapper(abc.ABC, Generic[T, U]):
 
     @classmethod
     @abc.abstractmethod
-    def obj_to_insertable(cls, obj: U) -> Sequence[Any]:
+    def get_insert_params(cls, obj: U) -> Dict[str, Any]:
         pass
 
     @classmethod
@@ -103,15 +102,18 @@ class Mapper(abc.ABC, Generic[T, U]):
 
     @classmethod
     def insert_placeholder(cls) -> str:
-        return ", ".join(["%s" for _ in cls.insert_fields])
+        return ", ".join([f"%({name})s" for name in cls.insert_fields])
 
 
-class AuditMapper(Mapper[models.MigrationAudit, models.PhaseIndex]):
+PhaseDirection = Tuple[bool, models.PhaseIndex]
+
+
+class AuditMapper(Mapper[models.MigrationAudit, PhaseDirection]):
     _my_fields = list(f.name for f in dataclasses.fields(models.MigrationAudit))[:-1]
     _index_fields = list(f.name for f in dataclasses.fields(models.PhaseIndex))
 
     fields = _my_fields + _index_fields
-    insert_fields = _index_fields
+    insert_fields = ["is_revert"] + _index_fields
     table = "migration_audit"
 
     @classmethod
@@ -120,8 +122,11 @@ class AuditMapper(Mapper[models.MigrationAudit, models.PhaseIndex]):
         return models.MigrationAudit(*row[:-6], index)  # type: ignore
 
     @classmethod
-    def obj_to_insertable(cls, obj: models.PhaseIndex) -> Sequence[Any]:
-        return dataclasses.astuple(obj)
+    def get_insert_params(cls, obj: PhaseDirection) -> Dict[str, Any]:
+        is_revert, index = obj
+        result = dataclasses.asdict(index)
+        result["is_revert"] = is_revert
+        return result
 
 
 class RevisionMapper(Mapper[models.DbRevision, models.Revision]):
@@ -144,8 +149,10 @@ class RevisionMapper(Mapper[models.DbRevision, models.Revision]):
         return result
 
     @classmethod
-    def obj_to_insertable(cls, obj: models.Revision) -> Sequence[Any]:
-        return [obj.number] + [getattr(obj, f) for f in cls.insert_fields[1:]]
+    def get_insert_params(cls, obj: models.Revision) -> Dict[str, Any]:
+        params = {f: getattr(obj, f) for f in cls.insert_fields[1:]}
+        params["revision"] = obj.number
+        return params
 
 
 class ConnectionMapper(Mapper[models.AppConnection, None]):
@@ -156,7 +163,7 @@ class ConnectionMapper(Mapper[models.AppConnection, None]):
         return models.AppConnection(*row)
 
     @classmethod
-    def obj_to_insertable(cls, obj: None) -> Sequence[Any]:
+    def get_insert_params(cls, obj: None) -> Dict[str, Any]:
         raise NotImplementedError()
 
 
@@ -202,8 +209,7 @@ class Database:
         SELECT EXISTS (
           SELECT FROM information_schema.schemata
           WHERE schema_name = %(schema)s
-        );
-        """,
+        )""",
             args,
         )[0][0]
         return cast(bool, result)
@@ -226,7 +232,7 @@ class Database:
 
     def insert(self, mapper: Type[Mapper[T, U]], obj: U, rest: str = "") -> T:
         # TODO: remove transactional assertion
-        args = mapper.obj_to_insertable(obj)
+        args = mapper.get_insert_params(obj)
         return (
             self._fetch(
                 f"""
@@ -258,13 +264,15 @@ class Database:
         return self.select(
             AuditMapper,
             """
-            WHERE finished_at IS NOT NULL AND revert_finished_at IS NOT NULL
+            WHERE finished_at IS NOT NULL
             ORDER BY id DESC LIMIT 1
             """,
         ).first()
 
-    def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
-        return self.insert(AuditMapper, index)
+    def audit_phase_start(
+        self, index: models.PhaseIndex, is_revert: bool = False
+    ) -> models.MigrationAudit:
+        return self.insert(AuditMapper, (is_revert, index))
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
         return self.update(
@@ -273,7 +281,9 @@ class Database:
             (audit.id,),
         ).one()
 
-    def get_audit(self, index: models.PhaseIndex) -> models.MigrationAudit:
+    def get_audit(
+        self, index: models.PhaseIndex, is_revert: bool = False
+    ) -> models.MigrationAudit:
         return self.select(
             AuditMapper,
             f"""
@@ -283,27 +293,10 @@ class Database:
         AND pre_deploy = %(pre_deploy)s
         AND phase = %(phase)s
         AND change = %(change)s
+        AND is_revert = %(is_revert)s
         ORDER BY id DESC LIMIT 1
         """,
-            dataclasses.asdict(index),
-        ).one()
-
-    def audit_phase_revert_start(
-        self, audit: models.MigrationAudit
-    ) -> models.MigrationAudit:
-        return self.update(
-            AuditMapper,
-            "SET revert_started_at = now() WHERE id = %s AND revert_started_at IS NULL",
-            (audit.id,),
-        ).one()
-
-    def audit_phase_revert_end(
-        self, audit: models.MigrationAudit
-    ) -> models.MigrationAudit:
-        return self.update(
-            AuditMapper,
-            "SET revert_finished_at = now() WHERE id = %s AND revert_finished_at IS NULL",
-            (audit.id,),
+            AuditMapper.get_insert_params((is_revert, index)),
         ).one()
 
     def close(self) -> None:
@@ -323,14 +316,20 @@ class Database:
         return self.insert(RevisionMapper, revision, on_conflict)
 
     def get_revisions(self) -> models.RevisionList:
+        """Returns the sequence of revisions stored in the (excluding deleted ones)."""
         results = self.select(RevisionMapper, "WHERE NOT is_deleted")
         return models.RevisionList({rev.number: rev for rev in results})
 
     def create_shim_schema(self, revision: int) -> None:
+        """Creates the 'shim schema' used by column-rename migrations. Idempotent."""
         shim_schema = SHIM_SCHEMA_FORMAT % revision
         self.cur.execute(f"CREATE SCHEMA IF NOT EXISTS {shim_schema}")
 
     def drop_shim_schema(self, revision: int) -> None:
+        """Drops the 'shim schema' used by column-rename migrations. Idempotent.
+
+        Does not cascade: the migration is assumed to have left the shim empty.
+        (Otherwise we can't be sure it's safe to drop.)"""
         shim_schema = SHIM_SCHEMA_FORMAT % revision
         self.cur.execute(f"DROP SCHEMA IF EXISTS {shim_schema}")
 
