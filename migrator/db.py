@@ -1,4 +1,6 @@
 """Abstraction layer over a database"""
+from __future__ import annotations
+
 import abc
 import contextlib
 import dataclasses
@@ -20,6 +22,7 @@ from typing import (
     Generic,
     Tuple,
     Type,
+    Callable,
 )
 
 T = TypeVar("T")
@@ -84,7 +87,7 @@ class Mapper(abc.ABC, Generic[T, U]):
 
     @classmethod
     @abc.abstractmethod
-    def row_to_obj(cls, row: Sequence[Any]) -> T:
+    def map(cls, row: Sequence[Any]) -> T:
         pass
 
     @classmethod
@@ -114,13 +117,25 @@ class AuditMapper(Mapper[models.MigrationAudit, models.PhaseIndex]):
     table = "migration_audit"
 
     @classmethod
-    def row_to_obj(cls, row: Sequence[Any]) -> models.MigrationAudit:
+    def map(cls, row: Sequence[Any]) -> models.MigrationAudit:
         index = models.PhaseIndex(*row[-6:])
         return models.MigrationAudit(*row[:-6], index)  # type: ignore
 
     @classmethod
     def obj_to_insertable(cls, obj: models.PhaseIndex) -> Sequence[Any]:
         return dataclasses.astuple(obj)
+
+
+class Results(List[T]):
+    def first(self) -> Optional[T]:
+        return self[0] if self else None
+
+    def one(self) -> T:
+        (obj,) = self
+        return obj
+
+    def map(self, row_to_obj: Callable[[T], U]) -> Results[U]:
+        return Results(row_to_obj(t) for t in self)
 
 
 class Database:
@@ -131,18 +146,20 @@ class Database:
         self.cur = self.conn.cursor()
         self.in_tx = False
 
-    def _fetch_inner(self, query: str, args: Any) -> List[Any]:
+    def _fetch_inner(self, query: str, args: Any) -> Results[Any]:
         self.cur.execute(query, args)
-        result = self.cur.fetchall()
+        result = Results(self.cur.fetchall())
         return result
 
-    def _fetch(self, query: str, args: Sequence[Any] = (), **kwargs: Any) -> List[Any]:
+    def _fetch(
+        self, query: str, args: Sequence[Any] = (), **kwargs: Any
+    ) -> Results[Any]:
         assert not self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
     def _fetch_tx(
         self, query: str, args: Sequence[Any] = (), **kwargs: Any
-    ) -> List[Any]:
+    ) -> Results[Any]:
         assert self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
@@ -173,7 +190,7 @@ class Database:
 
     def select(
         self, mapper: Type[Mapper[T, Any]], rest: str, args: Any = None
-    ) -> List[T]:
+    ) -> Results[T]:
         result = self._fetch(
             f"""
         SELECT {mapper.columns()}
@@ -182,7 +199,7 @@ class Database:
         """,
             args,
         )
-        return [mapper.row_to_obj(row) for row in result]
+        return result.map(mapper.map)
 
     def insert(self, mapper: Type[Mapper[T, U]], obj: U) -> T:
         # TODO: remove transactional assertion
@@ -194,11 +211,11 @@ class Database:
         RETURNING {mapper.columns()}""",
             mapper.obj_to_insertable(obj),
         )
-        return self.one([mapper.row_to_obj(row) for row in result])
+        return result.map(mapper.map).one()
 
     def update(
         self, mapper: Type[Mapper[T, Any]], set_where: str, args: Sequence[Any]
-    ) -> List[T]:
+    ) -> Results[T]:
         # TODO: remove transactional assertion
         result = self._fetch_tx(
             f"""
@@ -208,42 +225,29 @@ class Database:
         """,
             args,
         )
-        return [mapper.row_to_obj(row) for row in result]
-
-    @staticmethod
-    def first(objs: List[T]) -> Optional[T]:
-        return objs[0] if objs else None
-
-    @staticmethod
-    def one(objs: List[T]) -> T:
-        (obj,) = objs
-        return obj
+        return result.map(mapper.map)
 
     def get_last_finished(self) -> Optional[models.MigrationAudit]:
-        return self.first(
-            self.select(
-                AuditMapper,
-                """
+        return self.select(
+            AuditMapper,
+            """
             WHERE finished_at IS NOT NULL AND revert_finished_at IS NOT NULL
             ORDER BY id DESC LIMIT 1
             """,
-            )
-        )
+        ).first()
 
     def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
         return self.insert(AuditMapper, index)
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
-        return self.one(
-            self.update(
-                AuditMapper,
-                "SET finished_at = now() WHERE id = %s AND finished_at IS NULL",
-                (audit.id,),
-            )
-        )
+        return self.update(
+            AuditMapper,
+            "SET finished_at = now() WHERE id = %s AND finished_at IS NULL",
+            (audit.id,),
+        ).one()
 
     def get_audit(self, index: models.PhaseIndex) -> models.MigrationAudit:
-        result = self.select(
+        return self.select(
             AuditMapper,
             f"""
         WHERE revision = %(revision)s
@@ -255,30 +259,25 @@ class Database:
         ORDER BY id DESC LIMIT 1
         """,
             dataclasses.asdict(index),
-        )
-        return self.one(result)
+        ).one()
 
     def audit_phase_revert_start(
         self, audit: models.MigrationAudit
     ) -> models.MigrationAudit:
-        return self.one(
-            self.update(
-                AuditMapper,
-                "SET revert_started_at = now() WHERE id = %s AND revert_started_at IS NULL",
-                (audit.id,),
-            )
-        )
+        return self.update(
+            AuditMapper,
+            "SET revert_started_at = now() WHERE id = %s AND revert_started_at IS NULL",
+            (audit.id,),
+        ).one()
 
     def audit_phase_revert_end(
         self, audit: models.MigrationAudit
     ) -> models.MigrationAudit:
-        return self.one(
-            self.update(
-                AuditMapper,
-                "SET revert_finished_at = now() WHERE id = %s AND revert_finished_at IS NULL",
-                (audit.id,),
-            )
-        )
+        return self.update(
+            AuditMapper,
+            "SET revert_finished_at = now() WHERE id = %s AND revert_finished_at IS NULL",
+            (audit.id,),
+        ).one()
 
     def close(self) -> None:
         self.conn.close()
