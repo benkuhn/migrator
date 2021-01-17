@@ -77,6 +77,7 @@ class RepoConfig(BaseModel):
     schema_dump_command: str
     migrations_dir: str = "migrations"
     crash_on_incompatible_version: bool = True
+    incantation_path: str = "migrations/incantation.sql"
 
 
 class ValidationError(Exception):

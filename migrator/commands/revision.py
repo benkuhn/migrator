@@ -9,6 +9,7 @@ import psycopg2
 import yaml
 
 from . import text
+from ..constants import SHIM_SCHEMA_FORMAT, SCHEMA_NAME
 from ..logic import Context
 from .. import models, diff, db
 
@@ -22,6 +23,31 @@ pre_deploy:
     down: |
 {down_ddl}
 """
+
+
+def format_incantation(rev: models.Revision) -> str:
+    shim_schema = SHIM_SCHEMA_FORMAT % rev.number
+    return f"""
+    SELECT set_config(
+      'search_path',
+      '{shim_schema},'||current_setting('search_path'),
+      false -- not transaction-local
+    );
+
+    INSERT INTO {SCHEMA_NAME}.connections (pid, revision, schema_hash, backend_start)
+    VALUES (
+      pg_backend_pid(),
+      {rev.number},
+      decode({rev.schema_hash.hex()}, 'hex'),
+      (select backend_start from pg_stat_activity where pid = pg_backend_pid())
+    )
+    ON CONFLICT DO UPDATE SET
+      revision = excluded.revision,
+      schema_hash = excluded.schema_hash,
+      backend_start = excluded.backend_start
+    );
+    """
+
 
 DDL_INDENT = " " * 6
 
