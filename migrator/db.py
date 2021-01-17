@@ -24,12 +24,12 @@ from typing import (
     Dict,
 )
 
-T = TypeVar("T")
-U = TypeVar("U")
-
 import psycopg2
 
 from . import models
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 SCHEMA_DDL = f"""
 CREATE SCHEMA {SCHEMA_NAME};
@@ -76,8 +76,6 @@ CREATE TABLE {SCHEMA_NAME}.connections (
   backend_start TIMESTAMP WITH TIME ZONE NOT NULL
 );
 """
-
-PHASE_INDEX_FIELDS = "revision, migration_hash, schema_hash, pre_deploy, change, phase"
 
 
 class Mapper(abc.ABC, Generic[T, U]):
@@ -148,6 +146,18 @@ class RevisionMapper(Mapper[models.DbRevision, models.Revision]):
     @classmethod
     def obj_to_insertable(cls, obj: models.Revision) -> Sequence[Any]:
         return [obj.number] + [getattr(obj, f) for f in cls.insert_fields[1:]]
+
+
+class ConnectionMapper(Mapper[models.AppConnection, None]):
+    fields = ["pid", "revision", "schema_hash", "backend_start"]
+
+    @classmethod
+    def map(cls, row: Sequence[Any]) -> models.AppConnection:
+        return models.AppConnection(*row)
+
+    @classmethod
+    def obj_to_insertable(cls, obj: None) -> Sequence[Any]:
+        raise NotImplementedError()
 
 
 class Results(List[T]):

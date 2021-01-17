@@ -260,6 +260,14 @@ class Migration(BaseModel):
                 yield new_index, change, phase
 
 
+@dataclasses.dataclass
+class AppConnection:
+    pid: int
+    revision: int
+    schema_hash: bytes
+    backend_start: datetime
+
+
 from . import changes
 
 for s in BaseModel.__subclasses__():
