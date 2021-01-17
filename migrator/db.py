@@ -23,6 +23,7 @@ from typing import (
 )
 
 T = TypeVar("T")
+U = TypeVar("U")
 
 import psycopg2
 
@@ -36,7 +37,7 @@ CREATE TABLE {SCHEMA_NAME}.migrations (
   migration_hash BYTEA NOT NULL,
   schema_hash BYTEA NOT NULL,
   file TEXT NOT NULL,
-  is_deleted BOOLEAN NOT NULL,
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (revision, migration_hash, schema_hash)
 );
 
@@ -51,7 +52,7 @@ CREATE TABLE {SCHEMA_NAME}.migration_audit (
   pre_deploy BOOL NOT NULL,
   change INT NOT NULL,
   phase INT NOT NULL,
-  started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   finished_at TIMESTAMP WITH TIME ZONE,
   revert_started_at TIMESTAMP WITH TIME ZONE,
   revert_finished_at TIMESTAMP WITH TIME ZONE,
@@ -76,9 +77,9 @@ CREATE TABLE {SCHEMA_NAME}.connections (
 PHASE_INDEX_FIELDS = "revision, migration_hash, schema_hash, pre_deploy, change, phase"
 
 
-class Mapper(abc.ABC, Generic[T]):
-    non_insert_fields: List[str]
+class Mapper(abc.ABC, Generic[T, U]):
     fields: List[str]
+    insert_fields: List[str]
     table: str
 
     @classmethod
@@ -88,20 +89,28 @@ class Mapper(abc.ABC, Generic[T]):
 
     @classmethod
     @abc.abstractmethod
-    def obj_to_row(cls, obj: T) -> List[Any]:
+    def obj_to_insertable(cls, obj: U) -> Sequence[Any]:
         pass
 
     @classmethod
     def columns(cls) -> str:
-        return ", ".join(cls.non_insert_fields + cls.fields)
+        return ", ".join(cls.fields)
+
+    @classmethod
+    def insert_columns(cls) -> str:
+        return ", ".join(cls.insert_fields)
+
+    @classmethod
+    def insert_placeholder(cls) -> str:
+        return ", ".join(["%s" for _ in cls.insert_fields])
 
 
-class AuditMapper(Mapper[models.MigrationAudit]):
-    my_fields = list(f.name for f in dataclasses.fields(models.MigrationAudit))[1:-1]
-    index_fields = list(f.name for f in dataclasses.fields(models.PhaseIndex))
+class AuditMapper(Mapper[models.MigrationAudit, models.PhaseIndex]):
+    _my_fields = list(f.name for f in dataclasses.fields(models.MigrationAudit))[:-1]
+    _index_fields = list(f.name for f in dataclasses.fields(models.PhaseIndex))
 
-    non_insert_fields = ["id"]
-    fields = my_fields + index_fields
+    fields = _my_fields + _index_fields
+    insert_fields = _index_fields
     table = "migration_audit"
 
     @classmethod
@@ -110,8 +119,8 @@ class AuditMapper(Mapper[models.MigrationAudit]):
         return models.MigrationAudit(*row[:-6], index)  # type: ignore
 
     @classmethod
-    def obj_to_row(cls, obj: models.MigrationAudit) -> List[Any]:
-        return [*obj[:-1], *obj.index]
+    def obj_to_insertable(cls, obj: models.PhaseIndex) -> Sequence[Any]:
+        return dataclasses.astuple(obj)
 
 
 class Database:
@@ -162,7 +171,7 @@ class Database:
         with self.tx():
             self.cur.execute(SCHEMA_DDL)
 
-    def select(self, mapper: Type[Mapper[T]], rest: str) -> List[T]:
+    def select(self, mapper: Type[Mapper[T, Any]], rest: str) -> List[T]:
         result = self._fetch(
             f"""
         SELECT {mapper.columns()}
@@ -172,9 +181,26 @@ class Database:
         )
         return [mapper.row_to_obj(row) for row in result]
 
+    def insert(self, mapper: Type[Mapper[T, U]], obj: U) -> T:
+        # TODO: remove transactional assertion
+        result = self._fetch_tx(
+            f"""
+        INSERT INTO {SCHEMA_NAME}.{mapper.table}
+          ({mapper.insert_columns()})
+        VALUES ({mapper.insert_placeholder()})
+        RETURNING {mapper.columns()}""",
+            mapper.obj_to_insertable(obj),
+        )
+        return self.one([mapper.row_to_obj(row) for row in result])
+
     @staticmethod
     def first(objs: List[T]) -> Optional[T]:
         return objs[0] if objs else None
+
+    @staticmethod
+    def one(objs: List[T]) -> T:
+        (obj,) = objs
+        return obj
 
     def get_last_finished(self) -> Optional[models.MigrationAudit]:
         return self.first(
@@ -188,16 +214,7 @@ class Database:
         )
 
     def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
-        result = self._fetch_tx(
-            f"""
-        INSERT INTO {SCHEMA_NAME}.migration_audit
-            (started_at, {PHASE_INDEX_FIELDS})
-        VALUES
-            (now(), %s, %s, %s, %s, %s, %s)
-        RETURNING {AuditMapper.columns()}""",
-            dataclasses.astuple(index),
-        )
-        return AuditMapper.row_to_obj(result[0])
+        return self.insert(AuditMapper, index)
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
         result = self._fetch_tx(
