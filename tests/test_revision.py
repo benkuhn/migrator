@@ -2,7 +2,7 @@ import psycopg2.errors
 import pytest
 
 from migrator import models
-from migrator.commands import text, revision
+from migrator.commands import revision
 from migrator.constants import SHIM_SCHEMA_FORMAT
 from migrator.logic import Context
 
@@ -48,12 +48,20 @@ def test_incantation(ctx: Context) -> None:
     test_shim = "SELECT id FROM foo;"
     db.create_schema()
     with pytest.raises(psycopg2.errors.UndefinedTable):
-        db._fetch(test_shim)
+        args = ()
+        db._fetch(test_shim, args)
     db.cur.execute(incantation)
     # TODO replace with ORM
-    assert db._fetch("SELECT count(*) FROM migrator_status.connections")[0][0] == 1
-    assert db._fetch(test_shim)[0][0] == 1
+    args1 = ()
+    assert (
+        db._fetch("SELECT count(*) FROM migrator_status.connections", args1)[0][0] == 1
+    )
+    args2 = ()
+    assert db._fetch(test_shim, args2)[0][0] == 1
     # Test that running incantation again upserts
     db.cur.execute(incantation)
     # TODO replace with ORM
-    assert db._fetch("SELECT count(*) FROM migrator_status.connections")[0][0] == 1
+    args3 = ()
+    assert (
+        db._fetch("SELECT count(*) FROM migrator_status.connections", args3)[0][0] == 1
+    )

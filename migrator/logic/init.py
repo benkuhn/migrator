@@ -1,4 +1,4 @@
-from migrator.logic import Context
+from ..logic import Context
 
 
 def init_db(ctx: Context) -> None:

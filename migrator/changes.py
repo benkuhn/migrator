@@ -311,14 +311,15 @@ class FinishRename(RenameMixin, AbstractChange):
 
 class CreateRenameViewPhase(RenameMixin, TransactionalPhase):
     def run_inner(self, db: db.Database, index: models.PhaseIndex) -> None:
-        colnames = db._fetch_tx(
+        args = [self.table]
+        colnames = db._fetch(
             """
         SELECT column_name
           FROM information_schema.columns
          WHERE table_schema = 'public'
            AND table_name   = %s
         """,
-            [self.table],
+            args,
         )
         aliases = []
         for (colname,) in colnames:

@@ -16,13 +16,11 @@ from typing import (
     Iterator,
     Optional,
     TypeVar,
-    Iterable,
     Sequence,
-    Dict,
     Generic,
-    Tuple,
     Type,
     Callable,
+    cast,
 )
 
 T = TypeVar("T")
@@ -146,20 +144,10 @@ class Database:
         self.cur = self.conn.cursor()
         self.in_tx = False
 
-    def _fetch_inner(self, query: str, args: Any) -> Results[Any]:
+    def _fetch(self, query: str, args: Any) -> Results[Any]:
         self.cur.execute(query, args)
         result = Results(self.cur.fetchall())
         return result
-
-    def _fetch(
-        self, query: str, args: Sequence[Any] = (), **kwargs: Any
-    ) -> Results[Any]:
-        return self._fetch_inner(query, args or kwargs)
-
-    def _fetch_tx(
-        self, query: str, args: Sequence[Any] = (), **kwargs: Any
-    ) -> Results[Any]:
-        return self._fetch_inner(query, args or kwargs)
 
     @contextmanager
     def tx(self) -> Iterator[None]:
@@ -172,15 +160,17 @@ class Database:
                 self.in_tx = False
 
     def is_set_up(self) -> bool:
-        return self._fetch(
+        args = {"schema": SCHEMA_NAME}
+        result = self._fetch(
             """
         SELECT EXISTS (
           SELECT FROM information_schema.schemata
           WHERE schema_name = %(schema)s
         );
         """,
-            schema=SCHEMA_NAME,
+            args,
         )[0][0]
+        return cast(bool, result)
 
     def create_schema(self) -> None:
         with self.tx():
@@ -189,42 +179,44 @@ class Database:
     def select(
         self, mapper: Type[Mapper[T, Any]], rest: str, args: Any = None
     ) -> Results[T]:
-        result = self._fetch(
+        return self._fetch(
             f"""
         SELECT {mapper.columns()}
         FROM {SCHEMA_NAME}.{mapper.table}
         {rest}
         """,
             args,
-        )
-        return result.map(mapper.map)
+        ).map(mapper.map)
 
     def insert(self, mapper: Type[Mapper[T, U]], obj: U, rest: str = "") -> T:
         # TODO: remove transactional assertion
-        result = self._fetch_tx(
-            f"""
+        args = mapper.obj_to_insertable(obj)
+        return (
+            self._fetch(
+                f"""
         INSERT INTO {SCHEMA_NAME}.{mapper.table}
           ({mapper.insert_columns()})
         VALUES ({mapper.insert_placeholder()})
         {rest}
         RETURNING {mapper.columns()}""",
-            mapper.obj_to_insertable(obj),
+                args,
+            )
+            .map(mapper.map)
+            .one()
         )
-        return result.map(mapper.map).one()
 
     def update(
         self, mapper: Type[Mapper[T, Any]], set_where: str, args: Sequence[Any]
     ) -> Results[T]:
         # TODO: remove transactional assertion
-        result = self._fetch_tx(
+        return self._fetch(
             f"""
         UPDATE {SCHEMA_NAME}.{mapper.table}
         {set_where}
         RETURNING {mapper.columns()}
         """,
             args,
-        )
-        return result.map(mapper.map)
+        ).map(mapper.map)
 
     def get_last_finished(self) -> Optional[models.MigrationAudit]:
         return self.select(
@@ -288,6 +280,12 @@ class Database:
 
     def upsert(self, revision: models.Revision) -> None:
         MIGRATION_FIELDS = "revision, migration_hash, schema_hash, file, is_deleted"
+        args = (
+            revision.number,
+            revision.migration_hash,
+            revision.schema_hash,
+            revision.migration_text,
+        )
         result = self._fetch(
             f"""
         INSERT INTO {SCHEMA_NAME}.migrations
@@ -296,12 +294,7 @@ class Database:
         ON CONFLICT DO NOTHING
         RETURNING {MIGRATION_FIELDS}
         """,
-            (
-                revision.number,
-                revision.migration_hash,
-                revision.schema_hash,
-                revision.migration_text,
-            ),
+            args,
         )
         # Sanity check that the migration is the same on upsert
         assert result[0][3] == revision.migration_text
@@ -316,7 +309,7 @@ class Database:
 
 
 @contextlib.contextmanager
-def temp_db_url(control_conn: Any) -> Iterator[str]:  # type: ignore
+def temp_db_url(control_conn: Any) -> Iterator[str]:
     cur = control_conn.cursor()
     db_name = "".join(random.choices("qwertyuiopasdfghjklzxcvbnm", k=10))
     cur.execute("CREATE DATABASE " + db_name)

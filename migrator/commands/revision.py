@@ -8,7 +8,6 @@ from contextlib import contextmanager
 import psycopg2
 import yaml
 
-from . import text
 from ..constants import SHIM_SCHEMA_FORMAT, SCHEMA_NAME
 from ..logic import Context
 from .. import models, diff, db

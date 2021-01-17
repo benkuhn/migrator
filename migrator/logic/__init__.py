@@ -4,8 +4,8 @@ import abc
 from dataclasses import dataclass
 from typing import Optional, NoReturn, TextIO, cast
 
-from migrator import db, models
-from migrator.commands import text
+from .. import db, models
+from ..logic import text
 
 
 @dataclass

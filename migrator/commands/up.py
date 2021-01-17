@@ -1,6 +1,4 @@
-from . import text
-from .. import models
-from ..logic import Context
+from ..logic import Context, text
 from ..logic.migrate import upgrade
 from ..logic.init import init_db
 

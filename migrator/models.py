@@ -12,7 +12,17 @@ from datetime import datetime
 import hashlib
 from pydantic import BaseModel, root_validator, PrivateAttr
 from dataclasses import dataclass, field
-from typing import List, Union, Optional, Dict, Any, Iterator, Tuple, TYPE_CHECKING
+from typing import (
+    List,
+    Union,
+    Optional,
+    Dict,
+    Any,
+    Iterator,
+    Tuple,
+    TYPE_CHECKING,
+    Protocol,
+)
 
 if TYPE_CHECKING:
     from . import changes
