@@ -7,9 +7,8 @@ def upgrade(ctx: Context) -> None:
 
     last = db.get_last_finished()
     for (index, revision, change, phase) in repo.next_phases(
-        None if last is None else last.index
+        None if last is None else last.index, inclusive=last.is_revert
     ):
-
         if index == revision.first_index:
             db.create_shim_schema(revision.number)
             db.upsert_revision(revision)
@@ -26,6 +25,7 @@ def downgrade(ctx: Context, to_revision: int) -> None:
     for (index, revision, change, phase) in reversed(
         list(revisions.next_phases(target.last_index))
     ):
+        # TODO: allow reverts from non-final index
         if index == revision.last_index:
             db.create_shim_schema(revision.number)
         phase.revert(db, index)

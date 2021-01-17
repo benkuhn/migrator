@@ -54,9 +54,9 @@ class Repo:
         return Repo(config_path, config, revisions)
 
     def next_phases(
-        self, index: Optional[PhaseIndex]
+        self, index: Optional[PhaseIndex], inclusive: bool = False
     ) -> Iterator[IndexRevisionChangePhase]:
-        return self.revisions.next_phases(index)
+        return self.revisions.next_phases(index, inclusive)
 
 
 class RepoConfig(BaseModel):
@@ -108,11 +108,13 @@ class Revision:
         number = get_revision_number(filename)
         return FileRevision(number, filename)
 
-    def next_phases(self, index: Optional[PhaseIndex]) -> Iterator[IndexChangePhase]:
+    def next_phases(
+        self, index: Optional[PhaseIndex], inclusive: bool = False
+    ) -> Iterator[IndexChangePhase]:
         if index and index.revision > self.number:
             return
         for next_index, change, phase in self.phases():
-            if not index or next_index > index:
+            if not index or next_index > index or (inclusive and next_index == index):
                 yield next_index, change, phase
 
     def phases(self) -> Iterator[IndexChangePhase]:
@@ -153,7 +155,7 @@ class RevisionList(Dict[int, Revision]):
         yield from sorted(self.items())
 
     def next_phases(
-        self, index: Optional[PhaseIndex]
+        self, index: Optional[PhaseIndex], inclusive: bool = False
     ) -> Iterator[IndexRevisionChangePhase]:
         """Yields each remaining phase that should be run after the given index.
 
@@ -164,7 +166,7 @@ class RevisionList(Dict[int, Revision]):
                 continue
             if index and index.revision == num:
                 assert revision.first_index == index.first_change  # FIXME error
-            for next_index, change, phase in revision.next_phases(index):
+            for next_index, change, phase in revision.next_phases(index, inclusive):
                 yield next_index, revision, change, phase
 
 
