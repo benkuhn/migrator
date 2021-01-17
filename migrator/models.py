@@ -165,12 +165,11 @@ class FileRevision(Revision):
     number: int
     migration_filename: str
 
+    # here and below, the type: ignore comments tell mypy that it's ok for this to be a
+    # property even though it's an attribute on the parent class. Sigh.
+    # Removable when this bug is closed: https://github.com/python/mypy/issues/4125
     @property
-    def schema_text(self) -> str:
-        # FIXME: hack so that we can create a partial revision in order to serialize a
-        # migration...
-        if not os.path.exists(self.migration_filename):
-            return ""
+    def schema_text(self) -> str:  # type: ignore
         with open(self.schema_filename) as f:
             return f.read()
 
@@ -179,9 +178,7 @@ class FileRevision(Revision):
         return sibling(self.migration_filename, f"{self.number}-schema.sql")
 
     @property
-    def migration_text(self) -> str:
-        # FIXME: hack so that we can create a partial revision in order to serialize a
-        # migration...
+    def migration_text(self) -> str:  # type:ignore
         if not os.path.exists(self.migration_filename):
             return ""
         with open(self.migration_filename) as f:
@@ -195,7 +192,7 @@ class DbRevision(Revision):
     schema_text: str
 
     @property
-    def migration_filename(self) -> str:
+    def migration_filename(self) -> str:  # type: ignore
         return f"<database file, hash={self.migration_hash.hex()}>"
 
 
