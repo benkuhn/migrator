@@ -315,11 +315,16 @@ class Database:
             yield url
 
     def upsert_revision(self, revision: models.Revision) -> models.DbRevision:
-        return self.insert(RevisionMapper, revision, "ON CONFLICT DO NOTHING")
+        """Upserts the given revision into the database.
 
-    def get_revisions(self) -> Dict[int, models.Revision]:
+        Raises an exception if there's already a *different* (non-deleted) revision
+        with the same number."""
+        on_conflict = "ON CONFLICT (revision, migration_hash, schema_hash) DO NOTHING"
+        return self.insert(RevisionMapper, revision, on_conflict)
+
+    def get_revisions(self) -> models.RevisionList:
         results = self.select(RevisionMapper, "WHERE NOT is_deleted")
-        return {rev.number: rev for rev in results}
+        return models.RevisionList({rev.number: rev for rev in results})
 
     def create_shim_schema(self, revision: int) -> None:
         shim_schema = SHIM_SCHEMA_FORMAT % revision

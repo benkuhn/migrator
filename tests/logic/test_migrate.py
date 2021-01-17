@@ -8,3 +8,7 @@ def test_upgrade(ctx: FakeContext) -> None:
     db = ctx.db()
     db.cur.execute("select u_id, email, mobile from users")
     assert len(db.get_revisions()) == 2
+
+    migrate.downgrade(ctx, to_revision=1)
+    # This statement will fail on revision 2
+    db.cur.execute("insert into users values (1, '2')")

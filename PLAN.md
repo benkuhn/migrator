@@ -31,7 +31,8 @@ Logic
 - [x] insert migrations
 - [x] init script
 - [x] shim schema creation
-- [ ] downgrades + migration-in-db
+- [x] downgrades + migration-in-db
+- [ ] downgrades with no matching upgrade?!
 - [ ] progress reporting
 - [ ] step idempotency tests
 - [ ] safety checks + transaction timeouts

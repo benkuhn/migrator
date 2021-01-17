@@ -45,42 +45,18 @@ def sibling(fname: str, path: str) -> str:
 class Repo:
     config_path: str
     config: RepoConfig
-    revisions: Dict[int, Revision]
+    revisions: RevisionList
 
     @staticmethod
     def parse(config_path: str) -> Repo:
         config = RepoConfig.parse_obj(load_yaml(config_path))
-        revisions = Repo.parse_revlist(sibling(config_path, config.migrations_dir))
+        revisions = RevisionList.parse(sibling(config_path, config.migrations_dir))
         return Repo(config_path, config, revisions)
-
-    @staticmethod
-    def parse_revlist(dir: str) -> Dict[int, Revision]:
-        assert os.path.isdir(dir)
-        revisions = {}
-        for f in glob.glob(os.path.join(dir, "*.yml")):
-            rev = Revision.parse(f)
-            revisions[rev.number] = rev
-        assert list(revisions.keys()) == list(range(1, len(revisions) + 1))
-        return revisions
-
-    @property
-    def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
-        yield from sorted(self.revisions.items())
 
     def next_phases(
         self, index: Optional[PhaseIndex]
     ) -> Iterator[IndexRevisionChangePhase]:
-        """Yields each remaining phase that should be run after the given index.
-
-        If the index refers to a migration not in the repo, raises MigrationNotFound.
-        """
-        for num, revision in self.ordered_revisions:
-            if index and index.revision < num:
-                continue
-            if index and index.revision == num:
-                assert revision.first_index == index.first_change  # FIXME error
-            for next_index, change, phase in revision.next_phases(index):
-                yield next_index, revision, change, phase
+        return self.revisions.next_phases(index)
 
 
 class RepoConfig(BaseModel):
@@ -156,6 +132,40 @@ class Revision:
     @property
     def last_index(self) -> PhaseIndex:
         return next(reversed([i[0] for i in self.migration.phases(self.first_index)]))
+
+
+class RevisionList(Dict[int, Revision]):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        assert list(self.keys()) == list(range(1, len(self) + 1))
+
+    @staticmethod
+    def parse(dirname: str) -> RevisionList:
+        assert os.path.isdir(dirname)
+        revisions = {}
+        for f in glob.glob(os.path.join(dirname, "*.yml")):
+            rev = Revision.parse(f)
+            revisions[rev.number] = rev
+        return RevisionList(revisions)
+
+    @property
+    def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
+        yield from sorted(self.items())
+
+    def next_phases(
+        self, index: Optional[PhaseIndex]
+    ) -> Iterator[IndexRevisionChangePhase]:
+        """Yields each remaining phase that should be run after the given index.
+
+        If the index refers to a migration not in the repo, raises MigrationNotFound.
+        """
+        for num, revision in self.ordered_revisions:
+            if index and index.revision > num:
+                continue
+            if index and index.revision == num:
+                assert revision.first_index == index.first_change  # FIXME error
+            for next_index, change, phase in revision.next_phases(index):
+                yield next_index, revision, change, phase
 
 
 @dataclass
