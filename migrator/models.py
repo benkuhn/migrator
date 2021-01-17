@@ -179,6 +179,17 @@ class FileRevision(Revision):
 
 
 @dataclass
+class DbRevision(Revision):
+    number: int
+    migration_text: str
+    schema_text: str
+
+    @property
+    def migration_filename(self) -> str:
+        return f"<database file, hash={self.migration_hash.hex()}>"
+
+
+@dataclass
 class PhaseIndex:
     revision: int
     migration_hash: bytes
