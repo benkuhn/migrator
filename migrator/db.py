@@ -154,13 +154,11 @@ class Database:
     def _fetch(
         self, query: str, args: Sequence[Any] = (), **kwargs: Any
     ) -> Results[Any]:
-        assert not self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
     def _fetch_tx(
         self, query: str, args: Sequence[Any] = (), **kwargs: Any
     ) -> Results[Any]:
-        assert self.in_tx
         return self._fetch_inner(query, args or kwargs)
 
     @contextmanager
@@ -201,13 +199,14 @@ class Database:
         )
         return result.map(mapper.map)
 
-    def insert(self, mapper: Type[Mapper[T, U]], obj: U) -> T:
+    def insert(self, mapper: Type[Mapper[T, U]], obj: U, rest: str = "") -> T:
         # TODO: remove transactional assertion
         result = self._fetch_tx(
             f"""
         INSERT INTO {SCHEMA_NAME}.{mapper.table}
           ({mapper.insert_columns()})
         VALUES ({mapper.insert_placeholder()})
+        {rest}
         RETURNING {mapper.columns()}""",
             mapper.obj_to_insertable(obj),
         )

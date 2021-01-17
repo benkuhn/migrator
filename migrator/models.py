@@ -95,20 +95,12 @@ def parsing_file(filename: str) -> Iterator[None]:
         raise ValidationError(filename, e) from e
 
 
-@dataclass
 class Revision:
     # TODO validate
     number: int
     migration_filename: str
-
-    @property
-    def migration_text(self) -> str:
-        # FIXME: hack so that we can create a partial revision in order to serialize a
-        # migration...
-        if not os.path.exists(self.migration_filename):
-            return ""
-        with open(self.migration_filename) as f:
-            return f.read()
+    migration_text: str
+    schema_text: str
 
     @property
     def migration_hash(self) -> bytes:
@@ -117,31 +109,18 @@ class Revision:
     @property
     def migration(self) -> Migration:
         with parsing_file(self.migration_filename):
-            m = Migration(**load_yaml(self.migration_filename))
+            m = Migration(**yaml.safe_load(self.migration_text))
             return m
 
     @property
-    def schema_filename(self) -> str:
-        return sibling(self.migration_filename, f"{self.number}-schema.sql")
-
-    @property
-    def _schema_text(self) -> str:
-        # FIXME: hack so that we can create a partial revision in order to serialize a
-        # migration...
-        if not os.path.exists(self.migration_filename):
-            return ""
-        with open(self.schema_filename) as f:
-            return f.read()
-
-    @property
     def schema_hash(self) -> bytes:
-        return hashlib.sha256(self._schema_text.encode("ascii")).digest()
+        return hashlib.sha256(self.schema_text.encode("ascii")).digest()
 
     @staticmethod
     def parse(filename: str) -> Revision:
         assert os.path.isfile(filename)
         number = get_revision_number(filename)
-        return Revision(number, filename)
+        return FileRevision(number, filename)
 
     def next_phases(self, index: Optional[PhaseIndex]) -> Iterator[IndexChangePhase]:
         if index and index.revision > self.number:
@@ -167,6 +146,36 @@ class Revision:
     @property
     def last_index(self) -> PhaseIndex:
         return next(reversed([i[0] for i in self.migration.phases(self.first_index)]))
+
+
+@dataclass
+class FileRevision(Revision):
+    """A revision whose source is a file on disk"""
+
+    number: int
+    migration_filename: str
+
+    @property
+    def schema_text(self) -> str:
+        # FIXME: hack so that we can create a partial revision in order to serialize a
+        # migration...
+        if not os.path.exists(self.migration_filename):
+            return ""
+        with open(self.schema_filename) as f:
+            return f.read()
+
+    @property
+    def schema_filename(self) -> str:
+        return sibling(self.migration_filename, f"{self.number}-schema.sql")
+
+    @property
+    def migration_text(self) -> str:
+        # FIXME: hack so that we can create a partial revision in order to serialize a
+        # migration...
+        if not os.path.exists(self.migration_filename):
+            return ""
+        with open(self.migration_filename) as f:
+            return f.read()
 
 
 @dataclass

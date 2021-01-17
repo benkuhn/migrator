@@ -78,7 +78,7 @@ def revision(ctx: Context, message: str) -> None:
     with ctx.ui.open(migration_path, "w") as f:
         f.write(yaml.safe_dump(migration.dict(exclude_defaults=True), sort_keys=False))
 
-    rev = models.Revision(number=num, migration_filename=migration_path)
+    rev = models.FileRevision(number=num, migration_filename=migration_path)
     with ctx.ui.open(repo.config.incantation_path, "w") as f:
         f.write(format_incantation(rev))
 
