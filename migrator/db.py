@@ -1,4 +1,5 @@
 """Abstraction layer over a database"""
+import abc
 import contextlib
 import dataclasses
 import os
@@ -7,7 +8,18 @@ import re
 
 from .constants import SCHEMA_NAME, SHIM_SCHEMA_FORMAT
 from contextlib import contextmanager
-from typing import Any, List, Iterator, Optional, TypeVar, Iterable, Sequence
+from typing import (
+    Any,
+    List,
+    Iterator,
+    Optional,
+    TypeVar,
+    Iterable,
+    Sequence,
+    Dict,
+    Generic,
+    Tuple,
+)
 
 T = TypeVar("T")
 
@@ -62,13 +74,40 @@ CREATE TABLE {SCHEMA_NAME}.connections (
 
 PHASE_INDEX_FIELDS = "revision, migration_hash, schema_hash, pre_deploy, change, phase"
 
-AUDIT_FIELDS = f"id, started_at, finished_at, revert_started_at, revert_finished_at, {PHASE_INDEX_FIELDS}"
+
+class Mapper(abc.ABC, Generic[T]):
+    pk_fields: List[str]
+    fields: List[str]
+
+    @classmethod
+    @abc.abstractmethod
+    def row_to_obj(cls, row: Sequence[Any]) -> T:
+        pass
+
+    @classmethod
+    @abc.abstractmethod
+    def obj_to_row(cls, obj: T) -> List[Any]:
+        pass
+
+    @classmethod
+    def columns(cls) -> str:
+        return ", ".join(cls.pk_fields + cls.fields)
 
 
-def map_audit(row: Iterable[Any]) -> models.MigrationAudit:
-    fields = list(row)
-    index = models.PhaseIndex(*fields[-6:])
-    return models.MigrationAudit(*fields[:-6], index)  # type: ignore
+class AuditMapper(Mapper[models.MigrationAudit]):
+    pk_fields = ["id"]
+    my_fields = list(f.name for f in dataclasses.fields(models.MigrationAudit))[1:-1]
+    index_fields = list(f.name for f in dataclasses.fields(models.PhaseIndex))
+    fields = my_fields + index_fields
+
+    @classmethod
+    def row_to_obj(cls, row: Sequence[Any]) -> models.MigrationAudit:
+        index = models.PhaseIndex(*row[-6:])
+        return models.MigrationAudit(*row[:-6], index)  # type: ignore
+
+    @classmethod
+    def obj_to_row(cls, obj: models.MigrationAudit) -> List[Any]:
+        return [*obj[:-1], *obj.index]
 
 
 class Database:
@@ -122,7 +161,7 @@ class Database:
     def get_last_finished(self) -> Optional[models.MigrationAudit]:
         result = self._fetch(
             f"""
-        SELECT {AUDIT_FIELDS}
+        SELECT {AuditMapper.columns()}
         FROM {SCHEMA_NAME}.migration_audit
         WHERE finished_at IS NOT NULL
         AND revert_finished_at IS NOT NULL
@@ -131,7 +170,7 @@ class Database:
         )
         if len(result) == 0:
             return None
-        return map_audit(result[0])
+        return AuditMapper.row_to_obj(result[0])
 
     def audit_phase_start(self, index: models.PhaseIndex) -> models.MigrationAudit:
         result = self._fetch_tx(
@@ -140,10 +179,10 @@ class Database:
             (started_at, {PHASE_INDEX_FIELDS})
         VALUES
             (now(), %s, %s, %s, %s, %s, %s)
-        RETURNING {AUDIT_FIELDS}""",
+        RETURNING {AuditMapper.columns()}""",
             dataclasses.astuple(index),
         )
-        return map_audit(result[0])
+        return AuditMapper.row_to_obj(result[0])
 
     def audit_phase_end(self, audit: models.MigrationAudit) -> models.MigrationAudit:
         result = self._fetch_tx(
@@ -151,15 +190,15 @@ class Database:
         UPDATE {SCHEMA_NAME}.migration_audit
             SET finished_at = now()
         WHERE id = %s AND finished_at IS NULL
-        RETURNING {AUDIT_FIELDS}""",
+        RETURNING {AuditMapper.columns()}""",
             (audit.id,),
         )
-        return map_audit(result[0])
+        return AuditMapper.row_to_obj(result[0])
 
     def get_audit(self, index: models.PhaseIndex) -> models.MigrationAudit:
         result = self._fetch_tx(
             f"""
-        SELECT {AUDIT_FIELDS} FROM {SCHEMA_NAME}.migration_audit
+        SELECT {AuditMapper.columns()} FROM {SCHEMA_NAME}.migration_audit
         WHERE revision = %(revision)s
         AND migration_hash = %(migration_hash)s
         AND schema_hash = %(schema_hash)s
@@ -170,7 +209,7 @@ class Database:
         """,
             **dataclasses.asdict(index),
         )
-        return map_audit(result[0])
+        return AuditMapper.row_to_obj(result[0])
 
     def audit_phase_revert_start(
         self, audit: models.MigrationAudit
@@ -180,13 +219,13 @@ class Database:
         UPDATE {SCHEMA_NAME}.migration_audit
             SET revert_started_at = now()
         WHERE id = %s AND revert_started_at IS NULL
-        RETURNING {AUDIT_FIELDS}""",
+        RETURNING {AuditMapper.columns()}""",
             (audit.id,),
         )
         if not result:
             x = 1
             pass
-        return map_audit(result[0])
+        return AuditMapper.row_to_obj(result[0])
 
     def audit_phase_revert_end(
         self, audit: models.MigrationAudit
@@ -196,10 +235,10 @@ class Database:
         UPDATE {SCHEMA_NAME}.migration_audit
             SET revert_finished_at = now()
         WHERE id = %s AND revert_finished_at IS NULL
-        RETURNING {AUDIT_FIELDS}""",
+        RETURNING {AuditMapper.columns()}""",
             (audit.id,),
         )
-        return map_audit(result[0])
+        return AuditMapper.row_to_obj(result[0])
 
     def close(self) -> None:
         self.conn.close()
