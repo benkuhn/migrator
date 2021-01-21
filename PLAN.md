@@ -34,7 +34,8 @@ Logic
 - [x] downgrades + migration-in-db
 - [x] figure out how connections table will work w/ pgbouncer
 - [x] downgrades with no matching upgrade--split migration_audit table
-- [ ] correctly determine where to start if last op was a revert
+- [x] correctly determine where to start if last op was a revert
+- [x] downgrades that don't start from latest version
 - [ ] proof of concept of username approach
 - [ ] progress reporting
 - [ ] step idempotency tests

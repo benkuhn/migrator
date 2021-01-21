@@ -269,6 +269,9 @@ class Database:
             """,
         ).first()
 
+    def get_latest_audit(self) -> Optional[models.MigrationAudit]:
+        return self.select(AuditMapper, "ORDER BY id DESC LIMIT 1").first()
+
     def audit_phase_start(
         self, index: models.PhaseIndex, is_revert: bool = False
     ) -> models.MigrationAudit:

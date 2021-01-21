@@ -53,11 +53,6 @@ class Repo:
         revisions = RevisionList.parse(sibling(config_path, config.migrations_dir))
         return Repo(config_path, config, revisions)
 
-    def next_phases(
-        self, index: Optional[PhaseIndex], inclusive: bool = False
-    ) -> Iterator[IndexRevisionChangePhase]:
-        return self.revisions.next_phases(index, inclusive)
-
 
 class RepoConfig(BaseModel):
     schema_dump_command: str
@@ -108,13 +103,13 @@ class Revision:
         number = get_revision_number(filename)
         return FileRevision(number, filename)
 
-    def next_phases(
-        self, index: Optional[PhaseIndex], inclusive: bool = False
-    ) -> Iterator[IndexChangePhase]:
-        if index and index.revision > self.number:
+    def get_phases(self, slice: PhaseSlice) -> Iterator[IndexChangePhase]:
+        if slice.start and slice.start.revision > self.number:
+            return
+        if slice.end and slice.end.revision < self.number:
             return
         for next_index, change, phase in self.phases():
-            if not index or next_index > index or (inclusive and next_index == index):
+            if next_index in slice:
                 yield next_index, change, phase
 
     def phases(self) -> Iterator[IndexChangePhase]:
@@ -154,19 +149,13 @@ class RevisionList(Dict[int, Revision]):
     def ordered_revisions(self) -> Iterator[Tuple[int, Revision]]:
         yield from sorted(self.items())
 
-    def next_phases(
-        self, index: Optional[PhaseIndex], inclusive: bool = False
-    ) -> Iterator[IndexRevisionChangePhase]:
-        """Yields each remaining phase that should be run after the given index.
-
-        If the index refers to a migration not in the repo, raises MigrationNotFound.
-        """
+    def get_phases(self, slice: PhaseSlice) -> Iterator[IndexRevisionChangePhase]:
         for num, revision in self.ordered_revisions:
-            if index and index.revision > num:
+            if slice.start and slice.start.revision > num:
                 continue
-            if index and index.revision == num:
-                assert revision.first_index == index.first_change  # FIXME error
-            for next_index, change, phase in revision.next_phases(index, inclusive):
+            if slice.end and slice.end.revision < num:
+                continue
+            for next_index, change, phase in revision.get_phases(slice):
                 yield next_index, revision, change, phase
 
 
@@ -236,6 +225,23 @@ class PhaseIndex:
 
     def __gt__(self, other: PhaseIndex) -> bool:
         return self.sortkey > other.sortkey
+
+
+@dataclass
+class PhaseSlice:
+    start: Optional[PhaseIndex] = None
+    start_inclusive: bool = True
+    end: Optional[PhaseIndex] = None
+    end_inclusive: bool = False
+
+    def __contains__(self, item: PhaseIndex) -> bool:
+        if self.start:
+            if self.start > item or (not self.start_inclusive and self.start == item):
+                return False
+        if self.end:
+            if self.end < item or (not self.end_inclusive and self.end == item):
+                return False
+        return True
 
 
 IndexChangePhase = Tuple[PhaseIndex, "changes.Change", "changes.Phase"]
