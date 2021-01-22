@@ -36,7 +36,8 @@ Logic
 - [x] downgrades with no matching upgrade--split migration_audit table
 - [x] correctly determine where to start if last op was a revert
 - [x] downgrades that don't start from latest version
-- [ ] proof of concept of username approach
+- [x] proof of concept of username approach w/ pgbouncer
+- [ ] figure out how deploying multiple migrations at once should work
 - [ ] progress reporting
 - [ ] step idempotency tests
 - [ ] safety checks + transaction timeouts

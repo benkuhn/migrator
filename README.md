@@ -36,13 +36,13 @@ Create the directory and files:
 $ $cmd init
 ```
 
-Finally, in order to make table and column renames work, edit your application to run the SQL code in `$migrations_dir/init.sql` before issuing any queries. The init script does a couple things:
+Finally, in order to make table and column renames work, edit your application to change the **username** it uses to connect to Postgres to the string contained in the file `$migrations_dir/username` before issuing any queries. This allows us to do a couple things:
 
 1. It errors out if the database it's talking to hasn't had the right migrations run against it. This is intended as a safety check to prevent you from deploying a new version of your code before the associated migrations have run.
 
 1. It marks the current database connection as being associated with a particular schema version. This provides another safety check that prevents you from running any migrations that would break current database clients.
 
-1. Finally, it causes your application to look for tables first in a migration-specific schema, before searching in the `public` (default) schema.
+1. Finally, it causes your application to look for tables first in a migration-specific schema, before searching in the `public` (default) schema, which allows us to create "shim" tables to support multiple versions of your code coexisting.
 
 **Note:** $NAME does not support column renames for tables not in the `public` schema.
 
@@ -237,5 +237,5 @@ $ $cmd rebase main
 Re-numbering migrations that aren't in the `main` branch...
   #9 -> #12 Make users.email unique, whoops!
  #10 -> #13 Some other cleanups
-Resolving conflicts in migrations/init.sql... Done!
+Done!
 ```

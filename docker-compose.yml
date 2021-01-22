@@ -11,3 +11,13 @@ services:
     ports:
       # forward port 5543 to avoid conflicting with normal postgres
       - 5543:5432
+  pgbouncer:
+    build:
+      context: docker-pgbouncer
+    command:
+      - pgbouncer
+      - /home/pgbouncer/pgbouncer.ini
+    volumes:
+      - ./docker-pgbouncer:/home/pgbouncer/
+    ports:
+      - 6643:6432

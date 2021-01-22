@@ -7,6 +7,7 @@ import dataclasses
 import os
 import random
 import re
+from urllib.parse import urlparse
 
 from .constants import SCHEMA_NAME, SHIM_SCHEMA_FORMAT
 from contextlib import contextmanager
@@ -187,8 +188,8 @@ class Database:
         self.cur = self.conn.cursor()
         self.in_tx = False
 
-    def _fetch(self, query: str, args: Any) -> Results[Any]:
-        self.cur.execute(query, args)
+    def _fetch(self, query: str, args: Optional[Any] = None) -> Results[Any]:
+        self.cur.execute(query, args or ())
         result = Results(self.cur.fetchall())
         return result
 
@@ -326,6 +327,19 @@ class Database:
     def create_shim_schema(self, revision: int) -> None:
         """Creates the 'shim schema' used by column-rename migrations. Idempotent."""
         shim_schema = SHIM_SCHEMA_FORMAT % revision
+        parsed = urlparse(self.url)
+        username = shim_schema
+        password = parsed.password
+        search_path = self._fetch("SHOW search_path")[0][0]
+        # TODO: why is this ALTER USER necessary?! In manual testing, $user seems to
+        # refer to the name of the role we're inheriting from :(
+        self.cur.execute(
+            f"""
+        CREATE USER {shim_schema} IN ROLE {username} PASSWORD %(password)s INHERIT;
+        ALTER USER {shim_schema} SET search_path = {shim_schema}, {search_path};
+        """,
+            (password,),
+        )
         self.cur.execute(f"CREATE SCHEMA IF NOT EXISTS {shim_schema}")
 
     def drop_shim_schema(self, revision: int) -> None:
